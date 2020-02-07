@@ -36,6 +36,22 @@ using std::get;
 namespace msh
 {
 
+template <size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
+          size_t NodesPerFace, size_t InternalNodes>
+struct ElementInfo
+{
+    std::array<size_t, 3> control_nodes;
+    std::array<size_t, 3> faces;
+    std::array<size_t, NodesPerFace> face_nodes;
+    std::array<size_t, InternalNodes> internal_nodes;
+    smv::SmallVector<size_t, MaxElementAdjacencies> adjacent_elements;
+    smv::SmallVector<size_t, MaxNodeAdjacencies> adjacent_nodes;
+
+    ElementInfo(size_t a, size_t b, size_t c) noexcept : control_nodes{a, b, c},
+        faces{}, face_nodes{}, internal_nodes{}, adjacent_elements(), adjacent_nodes()
+    {}
+};
+
 /*
  * This class describes a mesh composed of simple triangles
  *
@@ -70,10 +86,13 @@ namespace msh
  * needed and recompile. The performance penalty for extra space should be
  * reasonable.
  */
-template <class CoordT, size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies>
+template <class CoordT, size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
+          size_t NodesPerFace = 0, size_t InternalNodes = 0>
 class TetMesh
 {
 public:
+    typedef ElementInfo<MaxElementAdjacencies, MaxNodeAdjacencies,
+                        NodesPerFace, InternalNodes> el_type;
     /*
      * Construct the TetMesh from a list of nodes, list of elements, and
      * list of curves.
@@ -88,7 +107,7 @@ public:
             const CurveContainer &bounding_curves)
     {
         m_nodes.reserve(nodes.size());
-        m_tets.reserve(tets.size());
+        m_elems.reserve(tets.size());
         m_bounding_curves.reserve(bounding_curves.size());
 
         for (const auto &node: nodes)
@@ -98,13 +117,21 @@ public:
 
         for (const auto &tet: tets)
         {
-            m_tets.push_back(
-                std::array<size_t, 3>{
-                    static_cast<size_t>(get<0>(tet)),
-                    static_cast<size_t>(get<1>(tet)),
-                    static_cast<size_t>(get<2>(tet))
-                }
-            );
+            auto n1 = get<0>(tet);
+            auto n2 = get<1>(tet);
+            auto n3 = get<2>(tet);
+
+            auto det = (m_nodes[n3][0] - m_nodes[n1][0]) * (m_nodes[n2][1] - m_nodes[n1][1]) -
+                (m_nodes[n2][0] - m_nodes[n1][0]) * (m_nodes[n3][1] - m_nodes[n1][1]);
+            
+            if (det > 0)
+            {
+                m_elems.emplace_back(n1, n2, n3);
+            }
+            else
+            {
+                m_elems.emplace_back(n2, n1, n3);
+            }
         }
 
         for (const auto &curve: bounding_curves)
@@ -118,91 +145,62 @@ public:
             }
         }
 
+        if (NodesPerFace != 0 || InternalNodes != 0)
+        {
+            assign_face_and_internal_nodes();
+        }
+        
         build_adjacencies();
     } // constructor
 
-    /*
-     * For efficiency, this constructor does the same as above but takes rvalue
-     * references to vectors for the arguments so that there isn't a bunch of
-     * copying involved.
-     *
-     * Note that the constructor will only disambiguate to this version if you
-     * make sure that ALL THREE arguments are rvalues (use std::move) and the
-     * types match exactly.
-     */
-    TetMesh(std::vector<std::array<CoordT, 2>> &&nodes,
-            std::vector<std::array<size_t, 3>> &&tets,
-            std::vector<std::vector<size_t>> &&m_bounding_curves) :
-        m_nodes(std::move(nodes)), m_tets(std::move(tets)),
-        m_bounding_curves(std::move(m_bounding_curves))
+    const el_type &element(size_t i) const noexcept
     {
-        build_adjacencies();
-    }
-
-    /*
-     * Get a list of elements that are adjacent to element `i`.
-     *
-     * The returned vector contains the indices of all elements that share a
-     * node with the element indexed by `i` in the mesh. This list does not
-     * include the index `i` itself.
-     */
-    const smv::SmallVector<size_t, MaxElementAdjacencies> &element_adjacencies(size_t i) const noexcept
-    {
-        return m_element_adjacencies[i];
-    }
-
-    /*
-     * Get a list of nodes that are adjacent to element `i`.
-     *
-     * The returned vector contains the indices of all nodes that either on
-     * this element, or any of its neighbors (may be queried with
-     * `element_adjacencies`). The entries in this list are unique.
-     */
-    const smv::SmallVector<size_t, MaxNodeAdjacencies> &node_adjacencies(size_t i) const noexcept
-    {
-        return m_node_adjacencies[i];
+        return m_elems[i];
     }
 
 private:
     std::vector<std::array<CoordT, 2>> m_nodes;
-    std::vector<std::array<size_t, 3>> m_tets;
-    std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
-    std::vector<smv::SmallVector<size_t, MaxElementAdjacencies>> m_element_adjacencies;
+    std::vector<el_type> m_elems;
     std::vector<std::vector<size_t>> m_bounding_curves;
 
     void build_adjacencies()
     {
-        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> els_neighboring(m_nodes.size());
-        for (size_t el = 0; el < m_tets.size(); ++el)
+        find_adjacent_nodes_and_elements();
+        assign_face_numbers();
+    }
+
+    void find_adjacent_nodes_and_elements()
+    {
+        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> node_neighbors(m_nodes.size());
+
+        for (size_t el = 0; el < m_elems.size(); ++el)
         {
-            for (size_t n: m_tets[el])
+            for (size_t n: m_elems[el].control_nodes)
             {
-                els_neighboring[n].push_back(el);
+                node_neighbors[n].push_back(el);
             }
+
         }
 
-        m_node_adjacencies.resize(m_tets.size());
-        m_element_adjacencies.resize(m_tets.size());
-
-        for (size_t el = 0; el < m_tets.size(); ++el)
+        for (size_t el = 0; el < m_elems.size(); ++el)
         {
-            process_adjacencies(el, els_neighboring);
+            process_adjacencies(el, node_neighbors);
         }
     }
 
     void process_adjacencies(size_t el,
-        const std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> &els_neighboring)
+        const std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> &node_neighbors)
     {
-        auto &eladj = m_element_adjacencies[el];
-        auto &nodeadj = m_node_adjacencies[el];
-        for (size_t n: m_tets[el])
+        auto &eladj = m_elems[el].adjacent_elements;
+        auto &nodeadj = m_elems[el].adjacent_nodes;
+        for (size_t n: m_elems[el].control_nodes)
         {
             if (std::count(nodeadj.begin(), nodeadj.end(), n) == 0)
             {
                 nodeadj.push_back(n);
             }
 
-            for (size_t neighbor: els_neighboring[n])
+            for (size_t neighbor: node_neighbors[n])
             {
                 if (neighbor == el) { continue; }
                 else if (std::count(eladj.begin(), eladj.end(), neighbor) == 0)
@@ -210,7 +208,7 @@ private:
                     eladj.push_back(neighbor);
                 }
 
-                for (size_t n2: m_tets[neighbor])
+                for (size_t n2: m_elems[neighbor].control_nodes)
                 {
                     if (std::count(nodeadj.begin(), nodeadj.end(), n2) == 0)
                     {
@@ -220,6 +218,12 @@ private:
             }
         }
     }
+
+    void assign_face_and_internal_nodes()
+    {}
+
+    void assign_face_numbers()
+    {}
 };
 
 #ifdef DOCTEST_LIBRARY_INCLUDED
@@ -235,20 +239,22 @@ TEST_CASE("Test constructing a tet mesh w/ its adjacencies")
 
     const std::vector<std::array<int, 3>> tets = {
         std::array<int, 3>{0, 1, 3},
-        std::array<int, 3>{3, 1, 2}
+        std::array<int, 3>{1, 3, 2}
     };
 
     const TetMesh<int, 1, 4> mesh(nodes, tets, std::vector<std::vector<int>>());
+    REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
+    REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
 
-    auto eladj = mesh.element_adjacencies(0);
+    auto eladj = mesh.element(0).adjacent_elements;
     REQUIRE(eladj.size() == 1);
     REQUIRE(eladj[0] == 1);
 
-    eladj = mesh.element_adjacencies(1);
+    eladj = mesh.element(1).adjacent_elements;
     REQUIRE(eladj.size() == 1);
     REQUIRE(eladj[0] == 0);
 
-    auto nodeadj = mesh.node_adjacencies(0);
+    auto nodeadj = mesh.element(0).adjacent_nodes;
     REQUIRE(nodeadj.size() == 4);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
@@ -256,7 +262,7 @@ TEST_CASE("Test constructing a tet mesh w/ its adjacencies")
     REQUIRE(nodeadj[2] == 2);
     REQUIRE(nodeadj[3] == 3);
 
-    nodeadj = mesh.node_adjacencies(1);
+    nodeadj = mesh.element(1).adjacent_nodes;
     REQUIRE(nodeadj.size() == 4);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
