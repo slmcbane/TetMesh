@@ -36,10 +36,53 @@ using std::get;
 namespace msh
 {
 
+/*
+ * This class describes a mesh composed of simple triangles
+ *
+ * The mesh described by this class is defined by a collection of nodes, which
+ * are simply points in 2D space, a collection of triangles, specified by the
+ * indices of their 3 vertices in the array of nodes, and a collection of
+ * bounding curves specified by an ordered list of indices of nodes that, when
+ * connected by line segments, form the curve.
+ *
+ * I am not implementing much in the way of sanity checking for the mesh;
+ * e.g. "bounding curves" could be not on the boundary of the mesh and nothing
+ * untoward would happen, there could be orphan nodes, the triangles don't form
+ * a partition of the domain, etc. It is primarily intended as a data structure
+ * to facilitate finite element simulation and the structure of the mesh will
+ * come from an external mesh generator.
+ *
+ * TEMPLATE PARAMETERS
+ * -------------------
+ *  - CoordT: Data type for real numbers used when specifying nodes.
+ *  - MaxElementAdjacencies: The maximum number of elements that share a node
+ *    with a given element, not including itself. A vector with a fixed max
+ *    size is used to store adjacencies and its max size is fixed by this
+ *    argument.
+ *  - MaxNodeAdjacencies: The maximum number of adjacent nodes to any single
+ *    element; this is the number of nodes in the set of all nodes on either
+ *    the element or any of the elements that neighbor it.
+ *
+ *
+ * When setting `MaxElementAdjacencies` and `MaxNodeAdjacencies`, note that
+ * an exception *will* be thrown if these values are exceeded. It is set as
+ * a template parameter to optimize storage space; just increase it as
+ * needed and recompile. The performance penalty for extra space should be
+ * reasonable.
+ */
 template <class CoordT, size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies>
 class TetMesh
 {
 public:
+    /*
+     * Construct the TetMesh from a list of nodes, list of elements, and
+     * list of curves.
+     *
+     * All three container arguments must support `size()` and the STL iterator
+     * interface. The elements in `nodes` and `tets` should support `get<i>` for
+     * element access, and elements of `bounding_curves` should be lists of
+     * node indices in a format that allows indexing with `[]`.
+     */
     template <class NodeContainer, class ElContainer, class CurveContainer>
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
             const CurveContainer &bounding_curves)
@@ -78,11 +121,43 @@ public:
         build_adjacencies();
     } // constructor
 
+    /*
+     * For efficiency, this constructor does the same as above but takes rvalue
+     * references to vectors for the arguments so that there isn't a bunch of
+     * copying involved.
+     *
+     * Note that the constructor will only disambiguate to this version if you
+     * make sure that ALL THREE arguments are rvalues (use std::move) and the
+     * types match exactly.
+     */
+    TetMesh(std::vector<std::array<CoordT, 2>> &&nodes,
+            std::vector<std::array<size_t, 3>> &&tets,
+            std::vector<std::vector<size_t>> &&m_bounding_curves) :
+        m_nodes(std::move(nodes)), m_tets(std::move(tets)),
+        m_bounding_curves(std::move(m_bounding_curves))
+    {
+        build_adjacencies();
+    }
+
+    /*
+     * Get a list of elements that are adjacent to element `i`.
+     *
+     * The returned vector contains the indices of all elements that share a
+     * node with the element indexed by `i` in the mesh. This list does not
+     * include the index `i` itself.
+     */
     const smv::SmallVector<size_t, MaxElementAdjacencies> &element_adjacencies(size_t i) const noexcept
     {
         return m_element_adjacencies[i];
     }
 
+    /*
+     * Get a list of nodes that are adjacent to element `i`.
+     *
+     * The returned vector contains the indices of all nodes that either on
+     * this element, or any of its neighbors (may be queried with
+     * `element_adjacencies`). The entries in this list are unique.
+     */
     const smv::SmallVector<size_t, MaxNodeAdjacencies> &node_adjacencies(size_t i) const noexcept
     {
         return m_node_adjacencies[i];
