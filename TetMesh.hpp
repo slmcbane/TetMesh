@@ -50,23 +50,11 @@ struct ElementInfo
     {
         for (auto &face: face_nodes)
         {
-            std::fill(face.begin(), face.end(), static_cast<size_t>(-1));
+            face.fill(static_cast<size_t>(-1));
         }
+        internal_nodes.fill(static_cast<size_t>(-1));
         std::fill(internal_nodes.begin(), internal_nodes.end(), static_cast<size_t>(-1));
     }
-};
-
-template <class CoordT, size_t MaxNodeAdjacencies>
-struct NodeInfo
-{
-    std::array<CoordT, 2> coords;
-    smv::SmallVector<size_t, MaxNodeAdjacencies> adjacent_nodes;
-
-    constexpr NodeInfo(CoordT a, CoordT b) noexcept : coords{a, b}, adjacent_nodes{}
-    {}
-
-    constexpr NodeInfo() : coords{}, adjacent_nodes{}
-    {}
 };
 
 /*
@@ -109,7 +97,7 @@ class TetMesh
 {
 public:
     typedef ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> el_type;
-    typedef NodeInfo<CoordT, MaxNodeAdjacencies> node_type;
+
     /*
      * Construct the TetMesh from a list of nodes, list of elements, and
      * list of curves.
@@ -123,13 +111,15 @@ public:
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
             const CurveContainer &bounding_curves)
     {
-        m_nodes.reserve(nodes.size());
+        m_coords.reserve(nodes.size());
         m_elems.reserve(tets.size());
         m_bounding_curves.reserve(bounding_curves.size());
 
         for (const auto &node: nodes)
         {
-            m_nodes.emplace_back(get<0>(node), get<1>(node));
+            m_coords.push_back(
+                std::array<CoordT, 2>{ static_cast<CoordT>(get<0>(node)),
+                                       static_cast<CoordT>(get<1>(node)) });
         }
 
         for (const auto &tet: tets)
@@ -138,10 +128,10 @@ public:
             auto n2 = get<1>(tet);
             auto n3 = get<2>(tet);
 
-            auto det = (m_nodes[n3].coords[0] - m_nodes[n1].coords[0]) *
-                       (m_nodes[n2].coords[1] - m_nodes[n1].coords[1]) -
-                       (m_nodes[n2].coords[0] - m_nodes[n1].coords[0]) *
-                       (m_nodes[n3].coords[1] - m_nodes[n1].coords[1]);
+            auto det = (m_coords[n3][0] - m_coords[n1][0]) *
+                       (m_coords[n2][1] - m_coords[n1][1]) -
+                       (m_coords[n2][0] - m_coords[n1][0]) *
+                       (m_coords[n3][1] - m_coords[n1][1]);
             
             if (det > 0)
             {
@@ -172,18 +162,24 @@ public:
         }
     } // constructor
 
-    const el_type &element(size_t i) const noexcept
+    const el_type &element(size_t i) const
     {
-        return m_elems[i];
+        return m_elems.at(i);
     }
 
-    const node_type &node(size_t i) const noexcept
+    const std::array<CoordT, 2> &coordinate(size_t i) const
     {
-        return m_nodes[i];
+        return m_coords.at(i);
+    }
+
+    const smv::SmallVector<size_t, MaxNodeAdjacencies> &adjacent_nodes(size_t m) const
+    {
+        return m_node_adjacencies.at(m);
     }
 
 private:
-    std::vector<node_type> m_nodes;
+    std::vector<std::array<CoordT, 2>> m_coords;
+    std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
     std::vector<el_type> m_elems;
     std::vector<std::vector<size_t>> m_bounding_curves;
     size_t m_num_faces;
@@ -196,7 +192,8 @@ private:
 
     void find_adjacent_nodes_and_elements()
     {
-        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> node_neighbors(m_nodes.size());
+        m_node_adjacencies.resize(m_coords.size());
+        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> node_neighbors(m_coords.size());
 
         for (size_t el = 0; el < m_elems.size(); ++el)
         {
@@ -204,7 +201,6 @@ private:
             {
                 node_neighbors[n].push_back(el);
             }
-
         }
 
         for (size_t el = 0; el < m_elems.size(); ++el)
@@ -243,7 +239,7 @@ private:
 
     void add_node_adjacency(size_t m, size_t n)
     {
-        auto &adj = m_nodes[m].adjacent_nodes;
+        auto &adj = m_node_adjacencies.at(m);
         if (std::count(adj.begin(), adj.end(), n) == 0)
         {
             adj.push_back(n);
@@ -261,7 +257,7 @@ private:
 
     void assign_face_and_internal_nodes()
     {
-        size_t node_number = m_nodes.size();
+        size_t node_number = m_coords.size();
 
         for (auto &el: m_elems)
         {
@@ -273,14 +269,14 @@ private:
                 for (size_t i = 0; i < NodesPerFace; ++i)
                 {
                     face[i] = node_number++;
-                    m_nodes.emplace_back();
+                    m_node_adjacencies.emplace_back();
                 }
             }
 
             for (size_t i = 0; i < InternalNodes; ++i)
             {
                 el.internal_nodes[i] = node_number++;
-                m_nodes.emplace_back();
+                m_node_adjacencies.emplace_back();
             }
             add_face_and_internal_nodes_to_adjacent(el);
         }
@@ -346,7 +342,7 @@ private:
     {
         size_t face_number = 0;
         std::vector<smv::SmallVector<std::array<size_t, 2>, MaxNodeAdjacencies>>
-            faces_adjoining(m_nodes.size());
+            faces_adjoining(m_coords.size());
 
         for (size_t eli = 0; eli < m_elems.size(); ++eli)
         {
@@ -446,26 +442,26 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(eladj.size() == 1);
     REQUIRE(eladj[0] == 0);
 
-    auto nodeadj = mesh.node(0).adjacent_nodes;
+    auto nodeadj = mesh.adjacent_nodes(0);
     REQUIRE(nodeadj.size() == 2);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 1);
     REQUIRE(nodeadj[1] == 3);
 
-    nodeadj = mesh.node(1).adjacent_nodes;
+    nodeadj = mesh.adjacent_nodes(1);
     REQUIRE(nodeadj.size() == 3);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
     REQUIRE(nodeadj[1] == 2);
     REQUIRE(nodeadj[2] == 3);
 
-    nodeadj = mesh.node(2).adjacent_nodes;
+    nodeadj = mesh.adjacent_nodes(2);
     REQUIRE(nodeadj.size() == 2);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 1);
     REQUIRE(nodeadj[1] == 3);
 
-    nodeadj = mesh.node(3).adjacent_nodes;
+    nodeadj = mesh.adjacent_nodes(3);
     REQUIRE(nodeadj.size() == 3);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
@@ -500,7 +496,7 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(eladj.size() == 1);
     REQUIRE(eladj[0] == 0);
 
-    auto nodeadj = mesh.node(1).adjacent_nodes;
+    auto nodeadj = mesh.adjacent_nodes(1);
     REQUIRE(nodeadj.size() == 15);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
@@ -509,7 +505,7 @@ TEST_CASE("Test constructing a third order mesh")
         CHECK(nodeadj[i] == i+1);
     }
 
-    nodeadj = mesh.node(15).adjacent_nodes;
+    nodeadj = mesh.adjacent_nodes(15);
     REQUIRE(nodeadj.size() == 9);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 1);
@@ -522,7 +518,7 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(nodeadj[7] == 13);
     REQUIRE(nodeadj[8] == 14);
 
-    nodeadj = mesh.node(8).adjacent_nodes;
+    nodeadj = mesh.adjacent_nodes(8);
     REQUIRE(nodeadj.size() == 9);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 0);
