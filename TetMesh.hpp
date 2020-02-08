@@ -327,6 +327,18 @@ private:
                 add_node_adjacency(node, face_nodes[0]);
                 add_node_adjacency(node, face_nodes[1]);
             }
+
+            for (size_t other_el_index: el.adjacent_elements)
+            {
+                auto &other_el = m_elems[other_el_index];
+                auto it = std::find(other_el.faces.begin(), other_el.faces.end(), el.faces[facei]);
+                if (it != other_el.faces.end())
+                {
+                    auto which = it - other_el.faces.begin();
+                    other_el.face_nodes[which][0] = face_nodes[1];
+                    other_el.face_nodes[which][1] = face_nodes[0];
+                }
+            }
         }
     }
 
@@ -496,6 +508,32 @@ TEST_CASE("Test constructing a third order mesh")
     {
         CHECK(nodeadj[i] == i+1);
     }
+
+    nodeadj = mesh.node(15).adjacent_nodes;
+    REQUIRE(nodeadj.size() == 9);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 1);
+    REQUIRE(nodeadj[1] == 2);
+    REQUIRE(nodeadj[2] == 3);
+    REQUIRE(nodeadj[3] == 6);
+    REQUIRE(nodeadj[4] == 7);
+    REQUIRE(nodeadj[5] == 11);
+    REQUIRE(nodeadj[6] == 12);
+    REQUIRE(nodeadj[7] == 13);
+    REQUIRE(nodeadj[8] == 14);
+
+    nodeadj = mesh.node(8).adjacent_nodes;
+    REQUIRE(nodeadj.size() == 9);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 0);
+    REQUIRE(nodeadj[1] == 1);
+    REQUIRE(nodeadj[2] == 3);
+    REQUIRE(nodeadj[3] == 4);
+    REQUIRE(nodeadj[4] == 5);
+    REQUIRE(nodeadj[5] == 6);
+    REQUIRE(nodeadj[6] == 7);
+    REQUIRE(nodeadj[7] == 9);
+    REQUIRE(nodeadj[8] == 10);
 
     auto face_nodes = mesh.element(0).face_nodes;
     REQUIRE(face_nodes[0] == std::array<size_t, 2>{4, 5});
