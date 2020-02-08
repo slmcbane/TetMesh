@@ -42,7 +42,7 @@ struct ElementInfo
 {
     std::array<size_t, 3> control_nodes;
     std::array<size_t, 3> faces;
-    std::array<size_t, NodesPerFace> face_nodes;
+    std::array<std::array<size_t, NodesPerFace>, 3> face_nodes;
     std::array<size_t, InternalNodes> internal_nodes;
     smv::SmallVector<size_t, MaxElementAdjacencies> adjacent_elements;
     smv::SmallVector<size_t, MaxNodeAdjacencies> adjacent_nodes;
@@ -223,7 +223,78 @@ private:
     {}
 
     void assign_face_numbers()
-    {}
+    {
+        size_t face_number = 0;
+        std::vector<smv::SmallVector<std::array<size_t, 2>, MaxNodeAdjacencies-1>>
+            faces_adjoining(m_nodes.size());
+
+        for (size_t eli = 0; eli < m_elems.size(); ++eli)
+        {
+            el_type &el = m_elems[eli];
+            bool face_numbered[] = { false, false, false };
+
+            // Discover already assigned faces
+            for (auto face: faces_adjoining[el.control_nodes[0]])
+            {
+                if (face[1] == el.control_nodes[1])
+                {
+                    el.faces[0] = face[0];
+                    face_numbered[0] = true;
+                }
+                else if (face[1] == el.control_nodes[2])
+                {
+                    el.faces[2] = face[0];
+                    face_numbered[2] = true;
+                }
+            }
+
+            for (auto face: faces_adjoining[el.control_nodes[1]])
+            {
+                if (face[1] == el.control_nodes[2])
+                {
+                    el.faces[1] = face[0];
+                    face_numbered[1] = true;
+                }
+            }
+
+            // For faces not assigned, assign numbers and do the bookkeeping.
+            if (!face_numbered[0])
+            {
+                el.faces[0] = face_number;
+                faces_adjoining[el.control_nodes[0]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[1]}
+                );
+                faces_adjoining[el.control_nodes[1]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[0]}
+                );
+                face_number += 1;
+            }
+
+            if (!face_numbered[1])
+            {
+                el.faces[1] = face_number;
+                faces_adjoining[el.control_nodes[1]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[2]}
+                );
+                faces_adjoining[el.control_nodes[2]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[1]}
+                );
+                face_number += 1;
+            }
+
+            if (!face_numbered[2])
+            {
+                el.faces[2] = face_number;
+                faces_adjoining[el.control_nodes[0]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[2]}
+                );
+                faces_adjoining[el.control_nodes[2]].push_back(
+                    std::array<size_t, 2>{face_number, el.control_nodes[0]}
+                );
+                face_number += 1;
+            }
+        }
+    }
 };
 
 #ifdef DOCTEST_LIBRARY_INCLUDED
@@ -269,6 +340,9 @@ TEST_CASE("Test constructing a tet mesh w/ its adjacencies")
     REQUIRE(nodeadj[1] == 1);
     REQUIRE(nodeadj[2] == 2);
     REQUIRE(nodeadj[3] == 3);
+
+    REQUIRE(mesh.element(0).faces == std::array<size_t, 3>{0, 1, 2});
+    REQUIRE(mesh.element(1).faces == std::array<size_t, 3>{1, 3, 4});
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
