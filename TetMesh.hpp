@@ -64,6 +64,9 @@ struct NodeInfo
 
     constexpr NodeInfo(CoordT a, CoordT b) noexcept : coords{a, b}, adjacent_nodes{}
     {}
+
+    constexpr NodeInfo() : coords{}, adjacent_nodes{}
+    {}
 };
 
 /*
@@ -270,17 +273,60 @@ private:
                 for (size_t i = 0; i < NodesPerFace; ++i)
                 {
                     face[i] = node_number++;
+                    m_nodes.emplace_back();
                 }
-
-                //update_adjacent_for_face(el.adjacent_elements, el.faces[facei],
-                                         //face);
             }
 
             for (size_t i = 0; i < InternalNodes; ++i)
             {
                 el.internal_nodes[i] = node_number++;
+                m_nodes.emplace_back();
             }
-            //update_adjacent_for_internal(el.adjacent_elements, el.internal_nodes);
+            add_face_and_internal_nodes_to_adjacent(el);
+        }
+    }
+
+    void add_face_and_internal_nodes_to_adjacent(const el_type &el)
+    {
+        for (size_t facei = 0; facei < 3; ++facei)
+        {
+            const auto &face_nodes = el.face_nodes[facei];
+            add_node_adjacency(face_nodes[0], face_nodes[1]);
+            add_node_adjacency(face_nodes[1], face_nodes[0]);
+            
+            for (size_t facej = facei+1; facej < 3; ++facej)
+            {
+                const auto &other_face_nodes = el.face_nodes[facej];
+                add_node_adjacency(face_nodes[0], other_face_nodes[0]);
+                add_node_adjacency(face_nodes[0], other_face_nodes[1]);
+                add_node_adjacency(face_nodes[1], other_face_nodes[0]);
+                add_node_adjacency(face_nodes[1], other_face_nodes[1]);
+                add_node_adjacency(other_face_nodes[0], face_nodes[0]);
+                add_node_adjacency(other_face_nodes[0], face_nodes[1]);
+                add_node_adjacency(other_face_nodes[1], face_nodes[0]);
+                add_node_adjacency(other_face_nodes[1], face_nodes[1]);
+            }
+
+            for (size_t node: el.control_nodes)
+            {
+                add_node_adjacency(face_nodes[0], node);
+                add_node_adjacency(face_nodes[1], node);
+                add_node_adjacency(node, face_nodes[0]);
+                add_node_adjacency(node, face_nodes[1]);
+                for (size_t inode: el.internal_nodes)
+                {
+                    add_node_adjacency(node, inode);
+                    add_node_adjacency(inode, node);
+                }
+            }
+
+            for (size_t node: el.internal_nodes)
+            {
+                add_node_adjacency(face_nodes[0], node);
+                add_node_adjacency(face_nodes[1], node);
+                add_node_adjacency(node, face_nodes[0]);
+                add_node_adjacency(node, face_nodes[1]);
+            }
         }
     }
 
@@ -448,7 +494,7 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(nodeadj[0] == 0);
     for (size_t i = 1; i < 15; ++i)
     {
-        REQUIRE(nodeadj[i] == i+1);
+        CHECK(nodeadj[i] == i+1);
     }
 
     auto face_nodes = mesh.element(0).face_nodes;
