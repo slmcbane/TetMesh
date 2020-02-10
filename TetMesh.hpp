@@ -515,9 +515,12 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     // Test that if the boundary specification is invalid (one of the node pairs
     // does not define an actual face in the mesh), we get an exception.
-    auto make_mesh = [=]() { return TetMesh<int, 1, 4>(nodes, tets,
-                                                       std::array<size_t, 3>{ 1, 2, 0 }); };
-    REQUIRE_THROWS(make_mesh);
+    auto make_mesh = [=](std::array<size_t, 3> b) { return TetMesh<int, 1, 4>(nodes, tets, b); };
+    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 1, 2, 0 }));
+
+    // Test that if a face on the boundary is internal, we get an exception.
+    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 0, 1, 3 }));
+    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 2, 1, 3 }));
 } // TEST_CASE
 
 TEST_CASE("Test constructing a third order mesh")
