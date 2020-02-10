@@ -177,12 +177,15 @@ public:
         return m_node_adjacencies.at(m);
     }
 
+    size_t num_vertices() const noexcept { return m_coords.size(); }
+    size_t num_elements() const noexcept { return m_elems.size(); }
+    size_t num_nodes() const noexcept { return m_node_adjacencies.size(); }
+
 private:
     std::vector<std::array<CoordT, 2>> m_coords;
     std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
     std::vector<el_type> m_elems;
     std::vector<std::vector<size_t>> m_bounding_curves;
-    size_t m_num_faces;
 
     void build_adjacencies()
     {
@@ -410,7 +413,6 @@ private:
                 face_number += 1;
             }
         }
-        m_num_faces = face_number;
     }
 };
 
