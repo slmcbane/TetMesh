@@ -20,12 +20,26 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ * This file contains code adapted from the standard library of the Julia
+ * language (https://julialang.org) in the implementation of
+ * `TetMesh::ArrayHasher`.
+ * 
+ * This code is
+ * Copyright (c) 2009-2019: Jeff Bezanson, Stefan Karpinski, Viral B. Shah, and other contributors
+ * under the same MIT license terms as above.
+ */
+
 #ifndef TETMESH_HPP
 #define TETMESH_HPP
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <exception>
+#include <iterator>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using std::size_t;
@@ -35,6 +49,20 @@ using std::get;
 
 namespace msh
 {
+
+template <class Iter>
+struct ReversedBoundaryIterator : public std::reverse_iterator<Iter>
+{
+    using std::reverse_iterator::reverse_iterator;
+};
+
+template <class Iter>
+struct is_reversed_iterator : public std::false_type
+{};
+
+template <class Iter>
+struct is_reversed_iterator<ReversedBoundaryIterator<Iter>> : public std::true_type
+{};
 
 template <size_t MaxElementAdjacencies, size_t NodesPerFace, size_t InternalNodes>
 struct ElementInfo
@@ -64,6 +92,10 @@ struct BoundaryRepresentation
     {
         size_t number;
         std::array<CoordT, 2> coords;
+
+        NodeDetails(size_t n, const std::array<CoordT, 2> &c) noexcept :
+            number{n}, coords(c)
+        {}
     };
 
     std::vector<NodeDetails> nodes;
@@ -73,9 +105,37 @@ struct BoundaryRepresentation
         size_t number;
         size_t element;
         std::array<size_t, 2+NodesPerFace> dofs;
+
+        FaceDetails(size_t n, size_t e, const std::array<size_t, 2+NodesPerFace> &d) noexcept :
+            number{n}, element{e}, dofs(d)
+        {}
     };
 
     std::vector<FaceDetails> faces;
+};
+
+enum class BoundaryError
+{
+    LessThanTwoNodes,
+    FaceIsNotValid,
+    FaceIsInternal
+};
+
+class BoundaryException : public std::exception
+{
+public:
+    BoundaryException(BoundaryError code, const char *msg) noexcept :
+        m_code(code), m_msg(msg)
+    {}
+
+    const char *what() const noexcept
+    {
+        return m_msg;
+    }
+
+private:
+    BoundaryError m_code;
+    const char   *m_msg;
 };
 
 /*
@@ -118,6 +178,7 @@ class TetMesh
 {
 public:
     typedef ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> el_type;
+    typedef BoundaryRepresentation<CoordT, NodesPerFace> brep_type;
 
     /*
      * Construct the TetMesh from a list of nodes, list of elements, and
@@ -130,11 +191,10 @@ public:
      */
     template <class NodeContainer, class ElContainer, class CurveContainer>
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
-            const CurveContainer &bounding_curves)
+            const CurveContainer &bounding_curves) : m_boundaries()
     {
         m_coords.reserve(nodes.size());
         m_elems.reserve(tets.size());
-        m_bounding_curves.reserve(bounding_curves.size());
 
         for (const auto &node: nodes)
         {
@@ -163,23 +223,24 @@ public:
                 m_elems.emplace_back(n2, n1, n3);
             }
         }
-
-        for (const auto &curve: bounding_curves)
-        {
-            m_bounding_curves.push_back(std::vector<size_t>());
-            auto &m_curve = *(m_bounding_curves.end() - 1);
-            m_curve.reserve(curve.size());
-            for (size_t i = 0; i < curve.size(); ++i)
-            {
-                m_curve.push_back(curve[i]);
-            }
-        }
         
-        build_adjacencies();
+        find_adjacent_nodes_and_elements();
+        const auto nodes_to_faces = assign_face_numbers();
 
         if (NodesPerFace != 0 || InternalNodes != 0)
         {
             assign_face_and_internal_nodes();
+        }
+
+        for (const auto &curve: bounding_curves)
+        {
+            if (curve.size() < 2)
+            {
+                throw BoundaryException(BoundaryError::LessThanTwoNodes,
+                                        "Boundary curve specified with only 1 node");
+            }
+            m_boundaries.push_back(
+                build_boundary_representation(curve.begin(), curve.end()));
         }
     } // constructor
 
@@ -206,13 +267,15 @@ private:
     std::vector<std::array<CoordT, 2>> m_coords;
     std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
     std::vector<el_type> m_elems;
-    std::vector<std::vector<size_t>> m_bounding_curves;
+    std::vector<BoundaryRepresentation<CoordT, NodesPerFace>> m_boundaries;
 
-    void build_adjacencies()
+    struct NodeFaceInfo
     {
-        find_adjacent_nodes_and_elements();
-        assign_face_numbers();
-    }
+        size_t number;
+        size_t node;
+        size_t other_node;
+        size_t element;
+    };
 
     void find_adjacent_nodes_and_elements()
     {
@@ -434,6 +497,103 @@ private:
                 face_number += 1;
             }
         }
+
+        return nodes_to_faces;
+    }
+
+    template <class Iterator>
+    BoundaryRepresentation<CoordT, NodesPerFace>
+    build_boundary_representation(const Iterator &begin, const Iterator &end,
+        const std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2>> &node_faces) const
+    {
+        auto reversed = check_for_reversal(begin, end, node_faces);
+        // First face is not a valid face.
+        if (reversed.first)
+        {
+            // But it does exist.
+            if (reversed.second)
+            {
+                // We already reversed the boundary; for this to be true one of
+                // the faces must be internal to the mesh.
+                if (is_reversed_iterator<Iterator>::value)
+                {
+                    throw BoundaryException(BoundaryError::FaceIsInternal,
+                        "Found face internal to the mesh while constructing boundary representation");
+                }
+
+                return build_boundary_representation(ReversedBoundaryIterator(end),
+                                                     ReversedBoundaryIterator(begin));
+            }
+
+            // Face does not exist.
+            else
+            {
+                throw BoundaryException(BoundaryError::FaceIsNotValid,
+                    "Given nodes do not bound a face in the mesh");
+            }
+        }
+
+        // At this point, I know that at least the first face is valid.
+        brep_type boundary;
+        size_t starting_dof = 0;
+        for (auto it = begin; (it+1) != end; ++it)
+        {
+            add_face_to_boundary(*it, *(it+1), boundary, node_faces, starting_dof);
+            starting_dof += (1 + NodesPerFace);
+        }
+
+        return boundary;
+    }
+
+    template <class Iterator>
+    std::pair<bool, bool> check_for_reversal(const Iterator &begin,
+        const std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2> &node_faces) const
+    {
+        size_t first_node = *begin;
+        size_t second_node = *(begin+1);
+        for (const auto &face: node_faces[first_node])
+        {
+            if (face.other_node == second_node)
+            {
+                return std::make_pair(false, true);
+            }
+        }
+
+        for (const auto &face: node_faces[second_node])
+        {
+            if (face.other_node == first_node)
+            {
+                return std::make_pair(true, true);
+            }
+        }
+
+        return std::make_pair(true, false);
+    }
+
+    static void add_face_to_boundary(size_t n1, size_t n2, brep_type &boundary,
+        const std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2> &node_faces,
+        size_t starting_dof)
+    {
+        // Exception gets thrown if face doesn't exist.
+        const NodeFaceInfo &face_info = find_face(n1, n2, node_faces);
+
+        std::array<size_t, NodesPerFace+2> dofs;
+        for (auto &dof: dofs)
+        {
+            dof = starting_dof++;
+        }
+
+        boundary.faces.emplace_back(face_info.number, face_info.element, dofs);
+
+        if (NodesPerFace != 0)
+        {
+            static_assert(false, "Implement me");
+        }
+        else
+        {
+            boundary.nodes.emplace_back(face_info.node, m_coords[face_info.node]);
+            boundary.nodes.emplace_back(face_info.other_node, m_coords[face_info.other_node]);
+        }
     }
 };
 
@@ -453,9 +613,9 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
         std::array<int, 3>{1, 3, 2}
     };
 
-    const std::array<size_t, 3> boundary = { 3, 2, 1 };
+    const std::array<std::array<size_t, 3>, 1> boundaries = { 3, 2, 1 };
 
-    const TetMesh<int, 1, 3> mesh(nodes, tets, boundary);
+    const TetMesh<int, 1, 3> mesh(nodes, tets, boundaries);
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
 
@@ -515,12 +675,15 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     // Test that if the boundary specification is invalid (one of the node pairs
     // does not define an actual face in the mesh), we get an exception.
-    auto make_mesh = [=](std::array<size_t, 3> b) { return TetMesh<int, 1, 4>(nodes, tets, b); };
-    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 1, 2, 0 }));
+    auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
+    {
+        return TetMesh<int, 1, 4>(nodes, tets, b);
+    };
+    REQUIRE_THROWS(make_mesh(std::array<std::array<size_t, 3>, 1>{ 1, 2, 0 }));
 
     // Test that if a face on the boundary is internal, we get an exception.
-    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 0, 1, 3 }));
-    REQUIRE_THROWS(make_mesh(std::array<size_t, 3>{ 2, 1, 3 }));
+    REQUIRE_THROWS(make_mesh(std::array<std::array<size_t, 3>, 1>{ 0, 1, 3 }));
+    REQUIRE_THROWS(make_mesh(std::array<std::array<size_t, 3>, 1>{ 2, 1, 3 }));
 } // TEST_CASE
 
 TEST_CASE("Test constructing a third order mesh")
