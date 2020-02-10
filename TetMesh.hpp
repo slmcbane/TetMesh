@@ -267,6 +267,7 @@ public:
     size_t num_vertices() const noexcept { return m_coords.size(); }
     size_t num_elements() const noexcept { return m_elems.size(); }
     size_t num_nodes() const noexcept { return m_node_adjacencies.size(); }
+    size_t num_boundaries() const noexcept { return m_boundaries.size(); }
 
 private:
     std::vector<std::array<CoordT, 2>> m_coords;
@@ -990,6 +991,79 @@ TEST_CASE("Test constructing a third order mesh")
         REQUIRE(false);
     }
     catch(const BoundaryException& exc)
+    {
+        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
+    }
+} // TEST_CASE
+
+TEST_CASE("A larger third order mesh boundary test")
+{
+    const std::array<std::array<double, 2>, 12> nodes = {
+        -1, 1,
+        -1, -1,
+        1, -1,
+        1, 1,
+        0, 1,
+        1, 0,
+        0, -1,
+        -1, 0,
+        -0.5, -0.5,
+        0.25, -0.25,
+        -0.25, 0.25,
+        0.5, 0.5
+    };
+
+    const std::array<std::array<size_t, 3>, 14> tets = {
+        0, 4, 10,
+        5, 2, 9,
+        9, 2, 6,
+        0, 10, 7,
+        4, 3, 11,
+        3, 5, 11,
+        1, 8, 6,
+        7, 8, 1,
+        4, 11, 10,
+        8, 9, 6,
+        10, 9, 8,
+        11, 5, 9,
+        10, 11, 9,
+        7, 10, 8
+    };
+
+    const std::array<std::array<size_t, 5>, 1> boundaries = { 0, 7, 1, 6, 2 };
+
+    const TetMesh<double, 11, 36, 2, 1> mesh(nodes, tets, boundaries);
+    
+    REQUIRE(mesh.num_boundaries() == 1);
+    const auto &boundary = mesh.boundary(0);
+    REQUIRE(boundary.nodes.size() == 13);
+    REQUIRE(boundary.nodes[0].number == 2);
+    REQUIRE(boundary.nodes[1].number == 26);
+    REQUIRE(boundary.nodes[2].number == 27);
+    REQUIRE(boundary.nodes[3].number == 6);
+    REQUIRE(boundary.nodes[4].number == 52);
+    REQUIRE(boundary.nodes[5].number == 53);
+    REQUIRE(boundary.nodes[6].number == 1);
+    REQUIRE(boundary.nodes[7].number == 57);
+    REQUIRE(boundary.nodes[8].number == 58);
+    REQUIRE(boundary.nodes[9].number == 7);
+    REQUIRE(boundary.nodes[10].number == 33);
+    REQUIRE(boundary.nodes[11].number == 34);
+    REQUIRE(boundary.nodes[12].number == 0);
+
+    // Selective tests on the coordinates of nodes.
+    REQUIRE(boundary.nodes[10].coords[0] == doctest::Approx(-1.0));
+    REQUIRE(boundary.nodes[10].coords[1] == doctest::Approx(1.0 / 3));
+    REQUIRE(boundary.nodes[4].coords[0] == doctest::Approx(-1.0 / 3));
+    REQUIRE(boundary.nodes[5].coords[0] == doctest::Approx(-2.0 / 3));
+
+    try
+    {
+        auto m = TetMesh<double, 11, 36, 2, 1>(nodes, tets,
+            std::array<std::array<size_t, 4>, 1>{4, 10, 7, 0});
+        REQUIRE(false);
+    }
+    catch (const BoundaryException &exc)
     {
         REQUIRE(exc.code == BoundaryError::FaceIsInternal);
     }
