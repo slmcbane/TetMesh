@@ -432,6 +432,8 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
         std::array<int, 3>{1, 3, 2}
     };
 
+    const std::array<size_t, 3> boundary = { 3, 2, 1 };
+
     const TetMesh<int, 1, 3> mesh(nodes, tets, std::vector<std::vector<int>>());
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
@@ -472,6 +474,19 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     REQUIRE(mesh.element(0).faces == std::array<size_t, 3>{0, 1, 2});
     REQUIRE(mesh.element(1).faces == std::array<size_t, 3>{1, 3, 4});
+
+    const auto &bound = mesh.boundary(0);
+    REQUIRE(bound.nodes.size() == 3);
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 2);
+    REQUIRE(bound.nodes[2] == 3);
+    REQUIRE(bound.faces.size() == 2);
+    REQUIRE(bound.faces[0].number == 3);
+    REQUIRE(bound.faces[0].element == 1);
+    REQUIRE(bound.faces[0].dofs == std::array<size_t, 2>{ 1, 2 });
+    REQUIRE(bound.faces[1].number == 4);
+    REQUIRE(bound.faces[1].element == 1);
+    REQUIRE(bound.faces[1].dofs == std::array<size_t, 2>{ 2, 3 });
 } // TEST_CASE
 
 TEST_CASE("Test constructing a third order mesh")
