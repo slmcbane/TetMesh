@@ -455,7 +455,7 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     const std::array<size_t, 3> boundary = { 3, 2, 1 };
 
-    const TetMesh<int, 1, 3> mesh(nodes, tets, std::vector<std::vector<int>>());
+    const TetMesh<int, 1, 3> mesh(nodes, tets, boundary);
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
 
@@ -512,6 +512,12 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
     REQUIRE(bound.faces[1].dofs == std::array<size_t, 2>{ 1, 2 });
+
+    // Test that if the boundary specification is invalid (one of the node pairs
+    // does not define an actual face in the mesh), we get an exception.
+    auto make_mesh = [=]() { return TetMesh<int, 1, 4>(nodes, tets,
+                                                       std::array<size_t, 3>{ 1, 2, 0 }); };
+    REQUIRE_THROWS(make_mesh);
 } // TEST_CASE
 
 TEST_CASE("Test constructing a third order mesh")
