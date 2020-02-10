@@ -104,10 +104,10 @@ struct BoundaryRepresentation
     {
         size_t number;
         size_t element;
-        std::array<size_t, 2+NodesPerFace> dofs;
+        std::array<size_t, 2+NodesPerFace> nodes;
 
         FaceDetails(size_t n, size_t e, const std::array<size_t, 2+NodesPerFace> &d) noexcept :
-            number{n}, element{e}, dofs(d)
+            number{n}, element{e}, nodes(d)
         {}
     };
 
@@ -649,8 +649,10 @@ private:
             constexpr auto alpha = 1.0 / (NodesPerFace + 1);
             for (size_t i = 0; i < NodesPerFace; ++i)
             {
-                coord[0] = m_coords[n1][0] + alpha * delta[0];
-                coord[1] = m_coords[n1][1] + alpha * delta[1];
+                coord[0] = m_coords[n1][0] + (i+1) * alpha * m_coords[n2][0]
+                    - (i+1) * alpha * m_coords[n1][0];
+                coord[1] = m_coords[n1][1] + (i+1) * alpha * m_coords[n2][1]
+                    - (i+1) * alpha * m_coords[n1][1];
                 boundary.nodes.emplace_back(face_nodes[i], coord);
             }
         }
@@ -781,10 +783,10 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(bound.faces.size() == 2);
     REQUIRE(bound.faces[0].number == 3);
     REQUIRE(bound.faces[0].element == 1);
-    REQUIRE(bound.faces[0].dofs == std::array<size_t, 2>{ 0, 1 });
+    REQUIRE(bound.faces[0].nodes == std::array<size_t, 2>{ 0, 1 });
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
-    REQUIRE(bound.faces[1].dofs == std::array<size_t, 2>{ 1, 2 });
+    REQUIRE(bound.faces[1].nodes == std::array<size_t, 2>{ 1, 2 });
 
     // Check error conditions to make sure they throw the correct error.
     auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
@@ -838,11 +840,11 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
 TEST_CASE("Test constructing a third order mesh")
 {
-    const std::vector<std::array<int, 2>> nodes = {
-        std::array<int, 2>{-1, -1},
-        std::array<int, 2>{-1, 1},
-        std::array<int, 2>{1, 1},
-        std::array<int, 2>{1, -1}
+    const std::vector<std::array<double, 2>> nodes = {
+        std::array<double, 2>{-1, -1},
+        std::array<double, 2>{-1, 1},
+        std::array<double, 2>{1, 1},
+        std::array<double, 2>{1, -1}
     };
 
     const std::vector<std::array<int, 3>> tets = {
@@ -850,7 +852,9 @@ TEST_CASE("Test constructing a third order mesh")
         std::array<int, 3>{1, 3, 2}
     };
 
-    const TetMesh<int, 1, 15, 2, 1> mesh(nodes, tets, std::vector<std::vector<int>>());
+    const std::array<std::array<size_t, 3>, 1> boundaries = { 1, 2, 3 };
+
+    const TetMesh<double, 1, 15, 2, 1> mesh(nodes, tets, boundaries);
 
     auto eladj = mesh.element(0).adjacent_elements;
     REQUIRE(eladj.size() == 1);
@@ -910,6 +914,85 @@ TEST_CASE("Test constructing a third order mesh")
 
     internal_nodes = mesh.element(1).internal_nodes;
     REQUIRE(internal_nodes[0] == 15);
+
+    const auto &bound = mesh.boundary(0);
+    REQUIRE(bound.nodes.size() == 7);
+    REQUIRE(bound.nodes[0].number == 1);
+    REQUIRE(bound.nodes[1].number == 11);
+    REQUIRE(bound.nodes[2].number == 12);
+    REQUIRE(bound.nodes[3].number == 2);
+    REQUIRE(bound.nodes[4].number == 13);
+    REQUIRE(bound.nodes[5].number == 14);
+    REQUIRE(bound.nodes[6].number == 3);
+
+    REQUIRE(bound.nodes[0].coords == std::array<double, 2>{-1, 1});
+    REQUIRE(bound.nodes[1].coords[0] == doctest::Approx(-1.0 / 3));
+    REQUIRE(bound.nodes[1].coords[1] == doctest::Approx(1.0));
+    REQUIRE(bound.nodes[2].coords[0] == doctest::Approx(1.0 / 3));
+    REQUIRE(bound.nodes[2].coords[1] == doctest::Approx(1.0));
+    REQUIRE(bound.nodes[3].coords == std::array<double, 2>{1, 1});
+    REQUIRE(bound.nodes[4].coords[0] == doctest::Approx(1.0));
+    REQUIRE(bound.nodes[4].coords[1] == doctest::Approx(1.0 / 3));
+    REQUIRE(bound.nodes[5].coords[0] == doctest::Approx(1.0));
+    REQUIRE(bound.nodes[5].coords[1] == doctest::Approx(-1.0 / 3));
+    REQUIRE(bound.nodes[6].coords == std::array<double, 2>{1, -1});
+
+    REQUIRE(bound.faces.size() == 2);
+    REQUIRE(bound.faces[0].number == 3);
+    REQUIRE(bound.faces[0].element == 1);
+    REQUIRE(bound.faces[0].nodes == std::array<size_t, 4>{ 0, 1, 2, 3 });
+    REQUIRE(bound.faces[1].number == 4);
+    REQUIRE(bound.faces[1].element == 1);
+    REQUIRE(bound.faces[1].nodes == std::array<size_t, 4>{ 3, 4, 5, 6 });
+
+    // Check error conditions to make sure they throw the correct error.
+    auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
+    {
+        return TetMesh<int, 1, 4>(nodes, tets, b);
+    };
+
+    // This one is a boundary specification containing a face that does not exist.
+    try
+    {
+        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 1, 2, 0 });
+        REQUIRE(false);
+    }
+    catch(const BoundaryException &exc)
+    {
+        REQUIRE(exc.code == BoundaryError::FaceIsNotValid);
+    }
+
+    // The three below are three different possible specifications of a boundary
+    // with a face that is internal to the mesh.
+    try
+    {
+        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 0, 1, 3 });
+        REQUIRE(false);
+    }
+    catch(const BoundaryException& exc)
+    {
+        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
+    }
+
+    try
+    {
+        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 2, 1, 3 });
+        REQUIRE(false);
+    }
+    catch(const BoundaryException& exc)
+    {
+        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
+    }
+
+    try
+    {
+        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 1, 3, 2 });
+        REQUIRE(false);
+    }
+    catch(const BoundaryException& exc)
+    {
+        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
+    }
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
