@@ -57,6 +57,27 @@ struct ElementInfo
     }
 };
 
+template <class CoordT, size_t NodesPerFace>
+struct BoundaryRepresentation
+{
+    struct NodeDetails
+    {
+        size_t number;
+        std::array<CoordT, 2> coords;
+    };
+
+    std::vector<NodeDetails> nodes;
+
+    struct FaceDetails
+    {
+        size_t number;
+        size_t element;
+        std::array<size_t, 2+NodesPerFace> dofs;
+    };
+
+    std::vector<FaceDetails> faces;
+};
+
 /*
  * This class describes a mesh composed of simple triangles
  *
@@ -477,16 +498,20 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     const auto &bound = mesh.boundary(0);
     REQUIRE(bound.nodes.size() == 3);
-    REQUIRE(bound.nodes[0] == 1);
-    REQUIRE(bound.nodes[1] == 2);
-    REQUIRE(bound.nodes[2] == 3);
+    REQUIRE(bound.nodes[0].number == 1);
+    REQUIRE(bound.nodes[1].number == 2);
+    REQUIRE(bound.nodes[2].number == 3);
+    REQUIRE(bound.nodes[0].coords == std::array<int, 2>{ -1, 1 });
+    REQUIRE(bound.nodes[1].coords == std::array<int, 2>{ 1, 1 });
+    REQUIRE(bound.nodes[2].coords == std::array<int, 2>{ 1, -1 });
+
     REQUIRE(bound.faces.size() == 2);
     REQUIRE(bound.faces[0].number == 3);
     REQUIRE(bound.faces[0].element == 1);
-    REQUIRE(bound.faces[0].dofs == std::array<size_t, 2>{ 1, 2 });
+    REQUIRE(bound.faces[0].dofs == std::array<size_t, 2>{ 0, 1 });
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
-    REQUIRE(bound.faces[1].dofs == std::array<size_t, 2>{ 2, 3 });
+    REQUIRE(bound.faces[1].dofs == std::array<size_t, 2>{ 1, 2 });
 } // TEST_CASE
 
 TEST_CASE("Test constructing a third order mesh")
