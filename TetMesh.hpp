@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <exception>
 #include <iterator>
+#include <queue>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -73,6 +74,19 @@ Container &apply_permutation(Container &x, const Permutation &perm, Swapper &&sw
     return x;
 }
 
+template <class CoordT, size_t MaxNodeAdjacencies>
+struct NodeInfo
+{
+    std::array<CoordT, 2> coords;
+    smv::SmallVector<size_t, MaxNodeAdjacencies> adjacent_nodes;
+
+    constexpr NodeInfo(CoordT a, CoordT b) noexcept : coords{a, b}, adjacent_nodes{}
+    {}
+
+    constexpr NodeInfo() : coords{}, adjacent_nodes{}
+    {}
+};
+
 template <size_t MaxElementAdjacencies, size_t NodesPerFace, size_t InternalNodes>
 struct ElementInfo
 {
@@ -97,17 +111,7 @@ struct ElementInfo
 template <class CoordT, size_t NodesPerFace>
 struct BoundaryRepresentation
 {
-    struct NodeDetails
-    {
-        size_t number;
-        std::array<CoordT, 2> coords;
-
-        NodeDetails(size_t n, const std::array<CoordT, 2> &c) noexcept :
-            number{n}, coords(c)
-        {}
-    };
-
-    std::vector<NodeDetails> nodes;
+    std::vector<size_t> nodes;
 
     struct FaceDetails
     {
@@ -188,6 +192,7 @@ class TetMesh
 public:
     typedef ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> el_type;
     typedef BoundaryRepresentation<CoordT, NodesPerFace> brep_type;
+    typedef NodeInfo<CoordT, MaxNodeAdjacencies> node_type;
 
     /*
      * Construct the TetMesh from a list of nodes, list of elements, and
@@ -202,14 +207,15 @@ public:
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
             const CurveContainer &bounding_curves) : m_boundaries()
     {
-        m_coords.reserve(nodes.size());
+        m_nodes.reserve(nodes.size());
         m_elems.reserve(tets.size());
 
         for (const auto &node: nodes)
         {
-            m_coords.push_back(
-                std::array<CoordT, 2>{ static_cast<CoordT>(get<0>(node)),
-                                       static_cast<CoordT>(get<1>(node)) });
+            m_nodes.emplace_back(
+                static_cast<CoordT>(get<0>(node)),
+                static_cast<CoordT>(get<1>(node))
+            );
         }
 
         for (const auto &tet: tets)
@@ -218,10 +224,8 @@ public:
             auto n2 = get<1>(tet);
             auto n3 = get<2>(tet);
 
-            auto det = (m_coords[n3][0] - m_coords[n1][0]) *
-                       (m_coords[n2][1] - m_coords[n1][1]) -
-                       (m_coords[n2][0] - m_coords[n1][0]) *
-                       (m_coords[n3][1] - m_coords[n1][1]);
+            auto det = (coord(n3)[0] - coord(n1)[0]) * (coord(n2)[1] - coord(n1)[1]) -
+                       (coord(n2)[0] - coord(n1)[0]) * (coord(n3)[1] - coord(n1)[1]);
             
             if (det > 0)
             {
@@ -258,14 +262,19 @@ public:
         return m_elems.at(i);
     }
 
-    const std::array<CoordT, 2> &coordinate(size_t i) const
+    const node_type &node(size_t i) const
     {
-        return m_coords.at(i);
+        return m_nodes.at(i);
     }
 
-    const smv::SmallVector<size_t, MaxNodeAdjacencies> &adjacent_nodes(size_t m) const
+    const std::array<CoordT, 2> &coord(size_t i) const
     {
-        return m_node_adjacencies.at(m);
+        return node(i).coords;
+    }
+
+    const smv::SmallVector<size_t, MaxNodeAdjacencies> &adjacent_nodes(size_t i) const
+    {
+        return node(i).adjacent_nodes;
     }
 
     const BoundaryRepresentation<CoordT, NodesPerFace> &boundary(size_t i) const
@@ -273,9 +282,8 @@ public:
         return m_boundaries.at(i);
     }
 
-    size_t num_vertices() const noexcept { return m_coords.size(); }
     size_t num_elements() const noexcept { return m_elems.size(); }
-    size_t num_nodes() const noexcept { return m_node_adjacencies.size(); }
+    size_t num_nodes() const noexcept { return m_nodes.size(); }
     size_t num_boundaries() const noexcept { return m_boundaries.size(); }
 
     double average_bandwidth() const
@@ -301,11 +309,100 @@ public:
         return total / static_cast<double>(num_nodes());
     }
 
+    void renumber_nodes()
+    {
+        constexpr auto sentinel = static_cast<size_t>(-1);
+        std::vector<size_t> new_numbers(m_nodes.size(), sentinel);
+
+        // This block computes mapping of node numbers, as well as updating
+        // the node numbers stored in elements.
+        {
+            std::vector<bool> processed(num_elements(), false);
+            std::queue<size_t> to_process(std::deque<size_t>(1, 0));
+            processed[0] = true;
+
+            size_t node_number = 0;
+
+            while (!(to_process.size() == 0))
+            {
+                auto &el = m_elems[to_process.front()];
+                to_process.pop();
+                for (size_t other: el.adjacent_elements)
+                {
+                    if (!processed[other])
+                    {
+                        to_process.push(other);
+                        processed[other] = true;
+                    }
+                }
+
+                for (auto &node: el.control_nodes)
+                {
+                    // Not reassigned yet.
+                    if (new_numbers[node] == sentinel)
+                    {
+                        new_numbers[node] = node_number++;
+                    }
+                    node = new_numbers[node];
+                }
+
+                for (auto &face: el.face_nodes)
+                {
+                    for (auto &node: face)
+                    {
+                        if (new_numbers[node] == sentinel)
+                        {
+                            new_numbers[node] = node_number++;
+                        }
+                        node = new_numbers[node];
+                    }
+                }
+
+                for (auto &node: el.internal_nodes)
+                {
+                    if (new_numbers[node] == sentinel)
+                    {
+                        new_numbers[node] = node_number++;
+                    }
+                    node = new_numbers[node];
+                }
+            }
+        }
+
+        // Now new_numbers stores the new number for every node.
+        // Swap coordinates around for nodes.
+        apply_permutation(m_nodes, new_numbers,
+            [](node_type &n1, node_type &n2) { std::swap(n1, n2); });
+
+        // Loop over nodes and update their adjacencies
+        for (auto &node: m_nodes)
+        {
+            for (size_t &i: node.adjacent_nodes)
+            {
+                i = new_numbers[i];
+            }
+        }
+
+        // For each boundary, loop over its node numbers and update. Coordinates
+        // do not change.
+        for (auto &boundary: m_boundaries)
+        {
+            for (size_t &node: boundary.nodes)
+            {
+                node = new_numbers[node];
+            }
+        }
+    }
+
 private:
-    std::vector<std::array<CoordT, 2>> m_coords;
-    std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
+    std::vector<node_type> m_nodes;
     std::vector<el_type> m_elems;
     std::vector<BoundaryRepresentation<CoordT, NodesPerFace>> m_boundaries;
+
+    node_type &node(size_t i)
+    {
+        return m_nodes.at(i);
+    }
 
     struct NodeFaceInfo
     {
@@ -324,8 +421,7 @@ private:
 
     void find_adjacent_nodes_and_elements()
     {
-        m_node_adjacencies.resize(m_coords.size());
-        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> node_neighbors(m_coords.size());
+        std::vector<smv::SmallVector<size_t, MaxElementAdjacencies+1>> node_neighbors(m_nodes.size());
 
         for (size_t el = 0; el < m_elems.size(); ++el)
         {
@@ -371,7 +467,7 @@ private:
 
     void add_node_adjacency(size_t m, size_t n)
     {
-        auto &adj = m_node_adjacencies.at(m);
+        auto &adj = m_nodes.at(m).adjacent_nodes;
         if (std::count(adj.begin(), adj.end(), n) == 0)
         {
             adj.push_back(n);
@@ -389,7 +485,7 @@ private:
 
     void assign_face_and_internal_nodes()
     {
-        size_t node_number = m_coords.size();
+        size_t node_number = m_nodes.size();
 
         for (auto &el: m_elems)
         {
@@ -398,17 +494,30 @@ private:
                 auto &face = el.face_nodes[facei];
                 if (face[0] != static_cast<size_t>(-1)) { continue; }
 
+                // Compute coordinates of the new node.
+                size_t n1 = facei, n2 = (facei+1)%3;
+                CoordT x1 = coord(n1)[0], y1 = coord(n1)[1], x2 = coord(n2)[0], y2 = coord(n2)[1];
+
                 for (size_t i = 0; i < NodesPerFace; ++i)
                 {
                     face[i] = node_number++;
-                    m_node_adjacencies.emplace_back();
+                    double alpha = static_cast<double>(i+1) / (NodesPerFace+1);
+                    m_nodes.emplace_back(x1 + alpha * x2 - alpha * x1,
+                                         y1 + alpha * y2 - alpha * y1);
                 }
             }
 
             for (size_t i = 0; i < InternalNodes; ++i)
             {
                 el.internal_nodes[i] = node_number++;
-                m_node_adjacencies.emplace_back();
+                CoordT new_x = (2 * coord(el.control_nodes[0])[0] +
+                                coord(el.control_nodes[1])[0] +
+                                coord(el.control_nodes[2])[0]) / 4;
+                CoordT new_y = (2 * coord(el.control_nodes[0])[1] +
+                                coord(el.control_nodes[1])[1] +
+                                coord(el.control_nodes[2])[1]) / 4;
+
+                m_nodes.emplace_back(new_x, new_y);
             }
             add_face_and_internal_nodes_to_adjacent(el);
         }
@@ -476,7 +585,7 @@ private:
         size_t face_number = 0;
 
         std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2>>
-            node_faces(m_coords.size());
+            node_faces(m_nodes.size());
 
         for (size_t eli = 0; eli < m_elems.size(); ++eli)
         {
@@ -665,32 +774,19 @@ private:
 
         if (boundary.nodes.size() == 0)
         {
-            boundary.nodes.emplace_back(n1, m_coords[n1]);
+            boundary.nodes.push_back(n1);
         }
 
         if (NodesPerFace != 0)
         {
             const auto &face_nodes = get_face_nodes(face_info);
-
-            std::array<CoordT, 2> delta;
-            for (size_t i = 0; i < 2; ++i)
-            {
-                delta[i] = m_coords[n2][i] - m_coords[n1][i];
-            }
-        
-            std::array<CoordT, 2> coord;
-            constexpr auto alpha = 1.0 / (NodesPerFace + 1);
             for (size_t i = 0; i < NodesPerFace; ++i)
             {
-                coord[0] = m_coords[n1][0] + (i+1) * alpha * m_coords[n2][0]
-                    - (i+1) * alpha * m_coords[n1][0];
-                coord[1] = m_coords[n1][1] + (i+1) * alpha * m_coords[n2][1]
-                    - (i+1) * alpha * m_coords[n1][1];
-                boundary.nodes.emplace_back(face_nodes[i], coord);
+                boundary.nodes.push_back(face_nodes[i]);
             }
         }
 
-        boundary.nodes.emplace_back(n2, m_coords[n2]);
+        boundary.nodes.push_back(n2);
     }
 
     const NodeFaceInfo &find_face(size_t n1, size_t n2,
@@ -809,12 +905,9 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     const auto &bound = mesh.boundary(0);
     REQUIRE(bound.nodes.size() == 3);
-    REQUIRE(bound.nodes[0].number == 1);
-    REQUIRE(bound.nodes[1].number == 2);
-    REQUIRE(bound.nodes[2].number == 3);
-    REQUIRE(bound.nodes[0].coords == std::array<int, 2>{ -1, 1 });
-    REQUIRE(bound.nodes[1].coords == std::array<int, 2>{ 1, 1 });
-    REQUIRE(bound.nodes[2].coords == std::array<int, 2>{ 1, -1 });
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 2);
+    REQUIRE(bound.nodes[2] == 3);
 
     REQUIRE(bound.faces.size() == 2);
     REQUIRE(bound.faces[0].number == 3);
@@ -823,13 +916,13 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
     REQUIRE(bound.faces[1].nodes == std::array<size_t, 2>{ 1, 2 });
-/*
+
     mesh.renumber_nodes();
 
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 2});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{2, 1, 3});
 
-    auto nodeadj = mesh.adjacent_nodes(0);
+    nodeadj = mesh.adjacent_nodes(0);
     REQUIRE(nodeadj.size() == 2);
     std::sort(nodeadj.begin(), nodeadj.end());
     REQUIRE(nodeadj[0] == 1);
@@ -855,11 +948,10 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(nodeadj[0] == 1);
     REQUIRE(nodeadj[1] == 2);
 
-    const auto &bound = mesh.boundary(0);
     REQUIRE(bound.nodes.size() == 3);
-    REQUIRE(bound.nodes[0].number == 1);
-    REQUIRE(bound.nodes[1].number == 3);
-    REQUIRE(bound.nodes[2].number == 2); */
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 3);
+    REQUIRE(bound.nodes[2] == 2);
 
     // Check error conditions to make sure they throw the correct error.
     auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
@@ -992,25 +1084,13 @@ TEST_CASE("Test constructing a third order mesh")
 
     const auto &bound = mesh.boundary(0);
     REQUIRE(bound.nodes.size() == 7);
-    REQUIRE(bound.nodes[0].number == 1);
-    REQUIRE(bound.nodes[1].number == 11);
-    REQUIRE(bound.nodes[2].number == 12);
-    REQUIRE(bound.nodes[3].number == 2);
-    REQUIRE(bound.nodes[4].number == 13);
-    REQUIRE(bound.nodes[5].number == 14);
-    REQUIRE(bound.nodes[6].number == 3);
-
-    REQUIRE(bound.nodes[0].coords == std::array<double, 2>{-1, 1});
-    REQUIRE(bound.nodes[1].coords[0] == doctest::Approx(-1.0 / 3));
-    REQUIRE(bound.nodes[1].coords[1] == doctest::Approx(1.0));
-    REQUIRE(bound.nodes[2].coords[0] == doctest::Approx(1.0 / 3));
-    REQUIRE(bound.nodes[2].coords[1] == doctest::Approx(1.0));
-    REQUIRE(bound.nodes[3].coords == std::array<double, 2>{1, 1});
-    REQUIRE(bound.nodes[4].coords[0] == doctest::Approx(1.0));
-    REQUIRE(bound.nodes[4].coords[1] == doctest::Approx(1.0 / 3));
-    REQUIRE(bound.nodes[5].coords[0] == doctest::Approx(1.0));
-    REQUIRE(bound.nodes[5].coords[1] == doctest::Approx(-1.0 / 3));
-    REQUIRE(bound.nodes[6].coords == std::array<double, 2>{1, -1});
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 11);
+    REQUIRE(bound.nodes[2] == 12);
+    REQUIRE(bound.nodes[3] == 2);
+    REQUIRE(bound.nodes[4] == 13);
+    REQUIRE(bound.nodes[5] == 14);
+    REQUIRE(bound.nodes[6] == 3);
 
     REQUIRE(bound.faces.size() == 2);
     REQUIRE(bound.faces[0].number == 3);
@@ -1062,25 +1142,26 @@ TEST_CASE("A larger third order mesh boundary test")
     REQUIRE(mesh.num_boundaries() == 1);
     const auto &boundary = mesh.boundary(0);
     REQUIRE(boundary.nodes.size() == 13);
-    REQUIRE(boundary.nodes[0].number == 2);
-    REQUIRE(boundary.nodes[1].number == 26);
-    REQUIRE(boundary.nodes[2].number == 27);
-    REQUIRE(boundary.nodes[3].number == 6);
-    REQUIRE(boundary.nodes[4].number == 52);
-    REQUIRE(boundary.nodes[5].number == 53);
-    REQUIRE(boundary.nodes[6].number == 1);
-    REQUIRE(boundary.nodes[7].number == 57);
-    REQUIRE(boundary.nodes[8].number == 58);
-    REQUIRE(boundary.nodes[9].number == 7);
-    REQUIRE(boundary.nodes[10].number == 33);
-    REQUIRE(boundary.nodes[11].number == 34);
-    REQUIRE(boundary.nodes[12].number == 0);
+    REQUIRE(boundary.nodes[0] == 2);
+    REQUIRE(boundary.nodes[1] == 26);
+    REQUIRE(boundary.nodes[2] == 27);
+    REQUIRE(boundary.nodes[3] == 6);
+    REQUIRE(boundary.nodes[4] == 52);
+    REQUIRE(boundary.nodes[5] == 53);
+    REQUIRE(boundary.nodes[6] == 1);
+    REQUIRE(boundary.nodes[7] == 57);
+    REQUIRE(boundary.nodes[8] == 58);
+    REQUIRE(boundary.nodes[9] == 7);
+    REQUIRE(boundary.nodes[10] == 33);
+    REQUIRE(boundary.nodes[11] == 34);
+    REQUIRE(boundary.nodes[12] == 0);
 
     // Selective tests on the coordinates of nodes.
+    /*
     REQUIRE(boundary.nodes[10].coords[0] == doctest::Approx(-1.0));
     REQUIRE(boundary.nodes[10].coords[1] == doctest::Approx(1.0 / 3));
     REQUIRE(boundary.nodes[4].coords[0] == doctest::Approx(-1.0 / 3));
-    REQUIRE(boundary.nodes[5].coords[0] == doctest::Approx(-2.0 / 3));
+    REQUIRE(boundary.nodes[5].coords[0] == doctest::Approx(-2.0 / 3)); */
 
     try
     {
