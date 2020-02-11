@@ -973,55 +973,6 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
     REQUIRE(bound.faces[1].nodes == std::array<size_t, 4>{ 3, 4, 5, 6 });
-
-    // Check error conditions to make sure they throw the correct error.
-    auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
-    {
-        return TetMesh<int, 1, 4>(nodes, tets, b);
-    };
-
-    // This one is a boundary specification containing a face that does not exist.
-    try
-    {
-        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 1, 2, 0 });
-        REQUIRE(false);
-    }
-    catch(const BoundaryException &exc)
-    {
-        REQUIRE(exc.code == BoundaryError::FaceIsNotValid);
-    }
-
-    // The three below are three different possible specifications of a boundary
-    // with a face that is internal to the mesh.
-    try
-    {
-        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 0, 1, 3 });
-        REQUIRE(false);
-    }
-    catch(const BoundaryException& exc)
-    {
-        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
-    }
-
-    try
-    {
-        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 2, 1, 3 });
-        REQUIRE(false);
-    }
-    catch(const BoundaryException& exc)
-    {
-        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
-    }
-
-    try
-    {
-        auto m = make_mesh(std::array<std::array<size_t, 3>, 1>{ 1, 3, 2 });
-        REQUIRE(false);
-    }
-    catch(const BoundaryException& exc)
-    {
-        REQUIRE(exc.code == BoundaryError::FaceIsInternal);
-    }
 } // TEST_CASE
 
 TEST_CASE("A larger third order mesh boundary test")
