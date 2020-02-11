@@ -20,16 +20,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-/*
- * This file contains code adapted from the standard library of the Julia
- * language (https://julialang.org) in the implementation of
- * `TetMesh::ArrayHasher`.
- * 
- * This code is
- * Copyright (c) 2009-2019: Jeff Bezanson, Stefan Karpinski, Viral B. Shah, and other contributors
- * under the same MIT license terms as above.
- */
-
 #ifndef TETMESH_HPP
 #define TETMESH_HPP
 
