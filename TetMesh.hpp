@@ -55,25 +55,6 @@ template <class Iter>
 struct is_reversed_iterator<ReversedBoundaryIterator<Iter>> : public std::true_type
 {};
 
-template <class Container, class Permutation, class Swapper>
-Container &apply_permutation(Container &x, const Permutation &perm, Swapper &&swapper)
-{
-    std::vector<bool> correct(x.size(), false);
-
-    for (size_t i = 0; i < x.size(); ++i)
-    {
-        size_t j = i;
-        while ((!correct[j]) && perm[j] != i)
-        {
-            swapper(x[j], x[perm[j]]);
-            correct[j] = true;
-            j = perm[j];
-        }
-        correct[j] = true;
-    }
-    return x;
-}
-
 template <class CoordT, size_t MaxNodeAdjacencies>
 struct NodeInfo
 {
@@ -370,9 +351,15 @@ public:
         }
 
         // Now new_numbers stores the new number for every node.
-        // Swap coordinates around for nodes.
-        apply_permutation(m_nodes, new_numbers,
-            [](node_type &n1, node_type &n2) { std::swap(n1, n2); });
+        // Swap node array around.
+        {
+            std::vector<node_type> new_nodes(m_nodes.size());
+            for (size_t i = 0; i < num_nodes(); ++i)
+            {
+                new_nodes[new_numbers[i]] = node(i);
+            }
+            std::swap(m_nodes, new_nodes);
+        }
 
         // Loop over nodes and update their adjacencies
         for (auto &node: m_nodes)
@@ -495,7 +482,7 @@ private:
                 if (face[0] != static_cast<size_t>(-1)) { continue; }
 
                 // Compute coordinates of the new node.
-                size_t n1 = facei, n2 = (facei+1)%3;
+                size_t n1 = el.control_nodes[facei], n2 = el.control_nodes[(facei+1)%3];
                 CoordT x1 = coord(n1)[0], y1 = coord(n1)[1], x2 = coord(n2)[0], y2 = coord(n2)[1];
 
                 for (size_t i = 0; i < NodesPerFace; ++i)
@@ -507,17 +494,12 @@ private:
                 }
             }
 
-            for (size_t i = 0; i < InternalNodes; ++i)
+            for (size_t &node: el.internal_nodes)
             {
-                el.internal_nodes[i] = node_number++;
-                CoordT new_x = (2 * coord(el.control_nodes[0])[0] +
-                                coord(el.control_nodes[1])[0] +
-                                coord(el.control_nodes[2])[0]) / 4;
-                CoordT new_y = (2 * coord(el.control_nodes[0])[1] +
-                                coord(el.control_nodes[1])[1] +
-                                coord(el.control_nodes[2])[1]) / 4;
-
-                m_nodes.emplace_back(new_x, new_y);
+                node = node_number++;
+                // In general can't define the coordinate of nodes internal to
+                // the element.
+                m_nodes.emplace_back();
             }
             add_face_and_internal_nodes_to_adjacent(el);
         }
@@ -921,6 +903,10 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 2});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{2, 1, 3});
+    REQUIRE(mesh.coord(0) == std::array<int, 2>{-1, -1});
+    REQUIRE(mesh.coord(1) == std::array<int, 2>{-1, 1});
+    REQUIRE(mesh.coord(2) == std::array<int, 2>{1, -1});
+    REQUIRE(mesh.coord(3) == std::array<int, 2>{1, 1});
 
     nodeadj = mesh.adjacent_nodes(0);
     REQUIRE(nodeadj.size() == 2);
@@ -1019,7 +1005,7 @@ TEST_CASE("Test constructing a third order mesh")
 
     const std::array<std::array<size_t, 3>, 1> boundaries = { 1, 2, 3 };
 
-    const TetMesh<double, 1, 15, 2, 1> mesh(nodes, tets, boundaries);
+    TetMesh<double, 1, 15, 2, 1> mesh(nodes, tets, boundaries);
 
     REQUIRE(mesh.average_bandwidth() == doctest::Approx(164.0 / 16));
 
@@ -1031,6 +1017,17 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(eladj.size() == 1);
     REQUIRE(eladj[0] == 0);
 
+    // Inexhaustive checks on coordinates.
+    REQUIRE(mesh.coord(3) == std::array<double, 2>{1, -1});
+    REQUIRE(mesh.coord(13)[0] == doctest::Approx(1.0));
+    REQUIRE(mesh.coord(13)[1] == doctest::Approx(1.0 / 3));
+    REQUIRE(mesh.coord(9)[0] == doctest::Approx(-1.0/3));
+    REQUIRE(mesh.coord(9)[1] == doctest::Approx(-1.0));
+    REQUIRE(mesh.coord(5)[0] == doctest::Approx(-1.0));
+    REQUIRE(mesh.coord(5)[1] == doctest::Approx(1.0 / 3));
+    REQUIRE(mesh.coord(11)[0] == doctest::Approx(-1.0 / 3));
+    REQUIRE(mesh.coord(11)[1] == doctest::Approx(1.0));
+
     auto nodeadj = mesh.adjacent_nodes(1);
     REQUIRE(nodeadj.size() == 15);
     std::sort(nodeadj.begin(), nodeadj.end());
@@ -1039,6 +1036,9 @@ TEST_CASE("Test constructing a third order mesh")
     {
         CHECK(nodeadj[i] == i+1);
     }
+
+    nodeadj = mesh.adjacent_nodes(6);
+    REQUIRE(nodeadj.size() == 15);
 
     nodeadj = mesh.adjacent_nodes(15);
     REQUIRE(nodeadj.size() == 9);
@@ -1099,6 +1099,58 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
     REQUIRE(bound.faces[1].nodes == std::array<size_t, 4>{ 3, 4, 5, 6 });
+
+    mesh.renumber_nodes();
+
+    // Inexhaustive checks on the node renumbering.
+    auto el = mesh.element(0);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{0, 1, 2});
+    REQUIRE(el.face_nodes[0] == std::array<size_t, 2>{3, 4});
+    REQUIRE(el.face_nodes[1] == std::array<size_t, 2>{5, 6});
+    REQUIRE(el.face_nodes[2] == std::array<size_t, 2>{7, 8});
+    REQUIRE(el.internal_nodes == std::array<size_t, 1>{9});
+    
+    el = mesh.element(1);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{2, 1, 10});
+    REQUIRE(el.face_nodes[0] == std::array<size_t, 2>{6, 5});
+    REQUIRE(el.face_nodes[1] == std::array<size_t, 2>{11, 12});
+    REQUIRE(el.face_nodes[2] == std::array<size_t, 2>{13, 14});
+    REQUIRE(el.internal_nodes == std::array<size_t, 1>{15});
+
+    nodeadj = mesh.adjacent_nodes(0);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 9; ++i)
+    {
+        REQUIRE(nodeadj[i] == i+1);
+    }
+    
+    nodeadj = mesh.adjacent_nodes(5);
+    REQUIRE(nodeadj.size() == 15);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 5; ++i)
+    {
+        REQUIRE(nodeadj[i] == i);
+    }
+    for (size_t i = 5; i < 15; ++i)
+    {
+        REQUIRE(nodeadj[i] == i+1);
+    }
+
+    REQUIRE(bound.nodes.size() == 7);
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 11);
+    REQUIRE(bound.nodes[2] == 12);
+    REQUIRE(bound.nodes[3] == 10);
+    REQUIRE(bound.nodes[4] == 13);
+    REQUIRE(bound.nodes[5] == 14);
+    REQUIRE(bound.nodes[6] == 2);
+
+    REQUIRE(mesh.coord(13)[0] == doctest::Approx(1.0));
+    REQUIRE(mesh.coord(13)[1] == doctest::Approx(1.0 / 3));
+    REQUIRE(mesh.coord(6)[0] == doctest::Approx(1.0 / 3));
+    REQUIRE(mesh.coord(6)[1] == doctest::Approx(-1.0 / 3));
+    REQUIRE(mesh.coord(4)[0] == doctest::Approx(-1.0));
+    REQUIRE(mesh.coord(4)[1] == doctest::Approx(1.0 / 3));
 } // TEST_CASE
 
 TEST_CASE("A larger third order mesh boundary test")
@@ -1173,16 +1225,6 @@ TEST_CASE("A larger third order mesh boundary test")
     {
         REQUIRE(exc.code == BoundaryError::FaceIsInternal);
     }
-} // TEST_CASE
-
-TEST_CASE("Test interface to apply a permutation")
-{
-    std::array<int, 10> arr = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-    std::array<size_t, 10> perm = { 4, 8, 2, 3, 0, 7, 9, 1, 5, 6 };
-
-    apply_permutation(arr, perm, [](int &a, int &b) { std::swap(a, b); });
-
-    REQUIRE(arr == std::array<int, 10> { 4, 8, 2, 3, 0, 7, 9, 1, 5, 6 });
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
