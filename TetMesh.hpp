@@ -754,7 +754,7 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
 
     const std::array<std::array<size_t, 3>, 1> boundaries = { 3, 2, 1 };
 
-    const TetMesh<int, 1, 3> mesh(nodes, tets, boundaries);
+    TetMesh<int, 1, 3> mesh(nodes, tets, boundaries);
 
     REQUIRE(mesh.average_bandwidth() == doctest::Approx(2.25));
 
@@ -814,6 +814,43 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     REQUIRE(bound.faces[1].number == 4);
     REQUIRE(bound.faces[1].element == 1);
     REQUIRE(bound.faces[1].nodes == std::array<size_t, 2>{ 1, 2 });
+
+    mesh.renumber_nodes();
+
+    REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 2});
+    REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{2, 1, 3});
+
+    auto nodeadj = mesh.adjacent_nodes(0);
+    REQUIRE(nodeadj.size() == 2);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 1);
+    REQUIRE(nodeadj[1] == 2);
+
+    nodeadj = mesh.adjacent_nodes(1);
+    REQUIRE(nodeadj.size() == 3);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 0);
+    REQUIRE(nodeadj[1] == 2);
+    REQUIRE(nodeadj[2] == 3);
+
+    nodeadj = mesh.adjacent_nodes(2);
+    REQUIRE(nodeadj.size() == 3);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 0);
+    REQUIRE(nodeadj[1] == 1);
+    REQUIRE(nodeadj[2] == 3);
+
+    nodeadj = mesh.adjacent_nodes(3);
+    REQUIRE(nodeadj.size() == 2);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 1);
+    REQUIRE(nodeadj[1] == 2);
+
+    const auto &bound = mesh.boundary(0);
+    REQUIRE(bound.nodes.size() == 3);
+    REQUIRE(bound.nodes[0].number == 1);
+    REQUIRE(bound.nodes[1].number == 3);
+    REQUIRE(bound.nodes[2].number == 2);
 
     // Check error conditions to make sure they throw the correct error.
     auto make_mesh = [=](std::array<std::array<size_t, 3>, 1> b)
