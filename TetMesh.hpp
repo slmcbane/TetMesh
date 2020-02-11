@@ -269,6 +269,29 @@ public:
     size_t num_nodes() const noexcept { return m_node_adjacencies.size(); }
     size_t num_boundaries() const noexcept { return m_boundaries.size(); }
 
+    double average_bandwidth() const
+    {
+        std::vector<size_t> max_dist(num_nodes(), 0);
+
+        for (size_t i = 0; i < num_nodes(); ++i)
+        {
+            for (size_t j: adjacent_nodes(i))
+            {
+                size_t diff = i > j ? i - j : j - i;
+                max_dist[i] = (max_dist[i] >= diff) * max_dist[i] +
+                    (diff > max_dist[i]) * diff;
+            }
+        }
+
+        size_t total = 0;
+        for (size_t d: max_dist)
+        {
+            total += d;
+        }
+
+        return total / static_cast<double>(num_nodes());
+    }
+
 private:
     std::vector<std::array<CoordT, 2>> m_coords;
     std::vector<smv::SmallVector<size_t, MaxNodeAdjacencies>> m_node_adjacencies;
@@ -732,6 +755,9 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     const std::array<std::array<size_t, 3>, 1> boundaries = { 3, 2, 1 };
 
     const TetMesh<int, 1, 3> mesh(nodes, tets, boundaries);
+
+    REQUIRE(mesh.average_bandwidth() == doctest::Approx(2.25));
+
     REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
     REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
 
@@ -856,6 +882,8 @@ TEST_CASE("Test constructing a third order mesh")
     const std::array<std::array<size_t, 3>, 1> boundaries = { 1, 2, 3 };
 
     const TetMesh<double, 1, 15, 2, 1> mesh(nodes, tets, boundaries);
+
+    REQUIRE(mesh.average_bandwidth() == doctest::Approx(164.0 / 16));
 
     auto eladj = mesh.element(0).adjacent_elements;
     REQUIRE(eladj.size() == 1);
