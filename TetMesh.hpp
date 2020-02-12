@@ -27,6 +27,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdio>
+#include <cstdint>
 #include <exception>
 #include <iterator>
 #include <queue>
@@ -460,6 +461,72 @@ public:
                 node = new_numbers[node];
             }
         }
+    }
+
+    std::vector<std::tuple<size_t, size_t, int>> sparsity_pattern() const
+    {
+        std::vector<std::tuple<size_t, size_t, int>> entries;
+        for (const auto &element: m_elems)
+        {
+            for (size_t node: element.control_nodes)
+            {
+                for (size_t other: element.control_nodes)
+                {
+                    entries.emplace_back(node, other, 1);
+                }
+                for (const auto &face: element.face_nodes)
+                {
+                    for (size_t other: face)
+                    {
+                        entries.emplace_back(node, other, 1);
+                    }
+                }
+                for (size_t other: element.internal_nodes)
+                {
+                    entries.emplace_back(node, other, 1);
+                }
+            }
+            for (const auto &face: element.face_nodes)
+            {
+                for (size_t node: face)
+                {
+                    for (size_t other : element.control_nodes)
+                    {
+                        entries.emplace_back(node, other, 1);
+                    }
+                    for (const auto &face : element.face_nodes)
+                    {
+                        for (size_t other : face)
+                        {
+                            entries.emplace_back(node, other, 1);
+                        }
+                    }
+                    for (size_t other : element.internal_nodes)
+                    {
+                        entries.emplace_back(node, other, 1);
+                    }
+                }
+            }
+            for (size_t node: element.internal_nodes)
+            {
+                for (size_t other : element.control_nodes)
+                {
+                    entries.emplace_back(node, other, 1);
+                }
+                for (const auto &face : element.face_nodes)
+                {
+                    for (size_t other : face)
+                    {
+                        entries.emplace_back(node, other, 1);
+                    }
+                }
+                for (size_t other : element.internal_nodes)
+                {
+                    entries.emplace_back(node, other, 1);
+                }
+            }
+        }
+        return entries;
     }
 
 private:
