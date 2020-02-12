@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <exception>
 #include <iterator>
 #include <queue>
@@ -414,7 +415,15 @@ private:
         {
             for (size_t n: m_elems[el].control_nodes)
             {
-                node_neighbors[n].push_back(el);
+                try
+                {
+                    node_neighbors[n].push_back(el);
+                }
+                catch(const smv::MaxSizeExceeded&)
+                {
+                    fprintf(stderr, "Exceeded max node neighbor elements at node %ld (MaxElementAdjacencies too small)\n", n);
+                    throw smv::MaxSizeExceeded{};
+                }
             }
         }
 
@@ -454,19 +463,36 @@ private:
 
     void add_node_adjacency(size_t m, size_t n)
     {
-        auto &adj = m_nodes.at(m).adjacent_nodes;
-        if (std::count(adj.begin(), adj.end(), n) == 0)
+        try
         {
-            adj.push_back(n);
+            auto &adj = m_nodes.at(m).adjacent_nodes;
+            if (std::count(adj.begin(), adj.end(), n) == 0)
+            {
+                adj.push_back(n);
+            }
+        }
+        catch(const smv::MaxSizeExceeded&)
+        {
+            fprintf(stderr, "Exceed max node adjacencies at node %ld (MaxNodeAdjacencies too small)",
+                    m);
+            throw smv::MaxSizeExceeded{};
         }
     }
 
     void add_element_adjacency(size_t m, size_t n)
     {
-        auto &adj = m_elems[m].adjacent_elements;
-        if (std::count(adj.begin(), adj.end(), n) == 0)
+        try
         {
-            adj.push_back(n);
+            auto &adj = m_elems[m].adjacent_elements;
+            if (std::count(adj.begin(), adj.end(), n) == 0)
+            {
+                adj.push_back(n);
+            }
+        }
+        catch (const smv::MaxSizeExceeded&)
+        {
+            fprintf(stderr, "Exceeded MaxElementAdjacencies at element %ld\n", m);
+            throw smv::MaxSizeExceeded{};
         }
     }
 
@@ -609,28 +635,52 @@ private:
             if (!face_numbered[0])
             {
                 el.faces[0] = face_number;
-                node_faces[el.control_nodes[0]].emplace_back(
-                    face_number, el.control_nodes[1], eli
-                );
-                face_number += 1;
+                try
+                {
+                    node_faces[el.control_nodes[0]].emplace_back(
+                        face_number, el.control_nodes[1], eli
+                    );
+                    face_number += 1;
+                }
+                catch (const smv::MaxSizeExceeded&)
+                {
+                    fprintf(stderr, "Exceeded number of faces adjoining a single node at node %ld\n", el.control_nodes[0]);
+                    throw smv::MaxSizeExceeded{};
+                }
             }
 
             if (!face_numbered[1])
             {
                 el.faces[1] = face_number;
-                node_faces[el.control_nodes[1]].emplace_back(
-                    face_number, el.control_nodes[2], eli
-                );
-                face_number += 1;
+                try
+                {
+                    node_faces[el.control_nodes[1]].emplace_back(
+                        face_number, el.control_nodes[2], eli
+                    );
+                    face_number += 1;
+                }
+                catch (const smv::MaxSizeExceeded&)
+                {
+                    fprintf(stderr, "Exceeded number of faces adjoining a single node at node %ld\n", el.control_nodes[1]);
+                    throw smv::MaxSizeExceeded{};
+                }
             }
 
             if (!face_numbered[2])
             {
                 el.faces[2] = face_number;
-                node_faces[el.control_nodes[2]].emplace_back(
-                    face_number, el.control_nodes[0], eli
-                );
-                face_number += 1;
+                try
+                {
+                    node_faces[el.control_nodes[2]].emplace_back(
+                        face_number, el.control_nodes[0], eli
+                    );
+                    face_number += 1;
+                }
+                catch (const smv::MaxSizeExceeded&)
+                {
+                    fprintf(stderr, "Exceeded number of faces adjoining a single node at node %ld\n", el.control_nodes[2]);
+                    throw smv::MaxSizeExceeded{};
+                }
             }
         }
 
