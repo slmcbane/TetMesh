@@ -137,7 +137,7 @@ struct ElementInfo
  * this face in the boundary representation is `face[i].nodes[j]`, but the index
  * __in the parent mesh__ is `repr.nodes[face[i].nodes[j]]`.
  */
-template <class CoordT, size_t NodesPerFace>
+template <size_t NodesPerFace>
 struct BoundaryRepresentation
 {
     std::vector<size_t> nodes;
@@ -224,7 +224,7 @@ class TetMesh
 {
 public:
     typedef ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> el_type;
-    typedef BoundaryRepresentation<CoordT, NodesPerFace> brep_type;
+    typedef BoundaryRepresentation<NodesPerFace> brep_type;
     typedef NodeInfo<CoordT, MaxNodeAdjacencies> node_type;
 
     /*
@@ -303,6 +303,7 @@ public:
             assign_face_and_internal_nodes();
         }
 
+        m_boundaries.reserve(bounding_curves.size());
         for (const auto &curve: bounding_curves)
         {
             if (curve.size() < 2)
@@ -337,7 +338,7 @@ public:
         return node(i).adjacent_nodes;
     }
 
-    const BoundaryRepresentation<CoordT, NodesPerFace> &boundary(size_t i) const
+    const BoundaryRepresentation<NodesPerFace> &boundary(size_t i) const
     {
         return m_boundaries.at(i);
     }
@@ -533,13 +534,12 @@ public:
     {
         size_t num_bytes = m_nodes.capacity() * sizeof(node_type);
         num_bytes += m_elems.capacity() * sizeof(el_type);
-        num_bytes += m_boundaries.capacity() * sizeof(
-            BoundaryRepresentation<CoordT, NodesPerFace>);
+        num_bytes += m_boundaries.capacity() * sizeof(BoundaryRepresentation<NodesPerFace>);
         for (const auto &boundary: m_boundaries)
         {
             num_bytes += boundary.nodes.capacity() * sizeof(size_t);
             num_bytes += boundary.faces.capacity() * sizeof(
-                typename BoundaryRepresentation<CoordT, NodesPerFace>::FaceDetails
+                typename BoundaryRepresentation<NodesPerFace>::FaceDetails
             );
         }
         return num_bytes;
@@ -548,7 +548,7 @@ public:
 private:
     std::vector<node_type> m_nodes;
     std::vector<el_type> m_elems;
-    std::vector<BoundaryRepresentation<CoordT, NodesPerFace>> m_boundaries;
+    std::vector<BoundaryRepresentation<NodesPerFace>> m_boundaries;
 
     node_type &node(size_t i)
     {
@@ -692,6 +692,7 @@ private:
             }
             add_face_and_internal_nodes_to_adjacent(el);
         }
+        m_nodes.shrink_to_fit();
     }
 
     void add_face_and_internal_nodes_to_adjacent(const el_type &el)
@@ -852,7 +853,7 @@ private:
 
     template <class Iterator>
     typename std::enable_if<!is_reversed_iterator<Iterator>::value,
-                            BoundaryRepresentation<CoordT, NodesPerFace>>::type
+                            BoundaryRepresentation<NodesPerFace>>::type
     build_boundary_representation(const Iterator &begin, const Iterator &end,
         const std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2>> &node_faces) const
     {
@@ -891,7 +892,7 @@ private:
 
     template <class Iterator>
     typename std::enable_if<is_reversed_iterator<Iterator>::value,
-                            BoundaryRepresentation<CoordT, NodesPerFace>>::type
+                            BoundaryRepresentation<NodesPerFace>>::type
     build_boundary_representation(const Iterator &begin, const Iterator &end,
         const std::vector<smv::SmallVector<NodeFaceInfo, MaxElementAdjacencies+2>> &node_faces) const
     {
