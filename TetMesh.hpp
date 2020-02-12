@@ -529,6 +529,22 @@ public:
         return entries;
     }
 
+    size_t storage_used() const noexcept
+    {
+        size_t num_bytes = m_nodes.capacity() * sizeof(node_type);
+        num_bytes += m_elems.capacity() * sizeof(el_type);
+        num_bytes += m_boundaries.capacity() * sizeof(
+            BoundaryRepresentation<CoordT, NodesPerFace>);
+        for (const auto &boundary: m_boundaries)
+        {
+            num_bytes += boundary.nodes.capacity() * sizeof(size_t);
+            num_bytes += boundary.faces.capacity() * sizeof(
+                typename BoundaryRepresentation<CoordT, NodesPerFace>::FaceDetails
+            );
+        }
+        return num_bytes;
+    }
+
 private:
     std::vector<node_type> m_nodes;
     std::vector<el_type> m_elems;
