@@ -42,20 +42,31 @@ using std::get;
 namespace msh
 {
 
+// This wrapper around reverse_iterator is used to select which version
+// of build_boundary_representation to call using std::enable_if.
 template <class Iter>
 struct ReversedBoundaryIterator : public std::reverse_iterator<Iter>
 {
     using std::reverse_iterator<Iter>::reverse_iterator;
 };
 
+// Trait to identify a ReversedBoundaryIterator
 template <class Iter>
 struct is_reversed_iterator : public std::false_type
 {};
-
 template <class Iter>
 struct is_reversed_iterator<ReversedBoundaryIterator<Iter>> : public std::true_type
 {};
 
+/*
+ * The information stored on a per node basis in the mesh.
+ * 
+ * - coords: The real number coordinates of the node in the X-Y plane
+ * - adjacent_nodes: A list of all nodes that share an element with this one.
+ * 
+ * Construct either with no coordinate info (zero-initialized), or from two
+ * coordinates X and Y; either way, the list of adjacent nodes is empty.
+ */
 template <class CoordT, size_t MaxNodeAdjacencies>
 struct NodeInfo
 {
@@ -69,6 +80,27 @@ struct NodeInfo
     {}
 };
 
+/*
+ * Data structure encapsulating all informatino the mesh stores about each
+ * triangle element.
+ * 
+ * - control_nodes: The three nodes defining the triangle, in clockwise order.
+ * - faces: The indices of the faces on the element in the mesh. Note that the
+ *          mesh does not actually store any information about faces, only these
+ *          numbers; they are used when building the boundary representation and
+ *          assigning numbers to nodes on faces.
+ * - face_nodes: face_nodes[i] is a size NodesPerFace array with the indices of
+ *               the nodes on that face, in clockwise order. Note that the mesh
+ *               assumes these are equispaced on the face and assigns coordinates
+ *               to them as such.
+ * - internal_nodes: A list of the indices of nodes internal to the element, in
+ *                   no particular order. It is up to the user to interpret these.
+ * - adjacent_elements: A list of all other elements in the mesh that share at
+ *                      least one node with this one.
+ * 
+ * Construct from 3 indices defining the control nodes; all other fields are
+ * default initialized.
+ */
 template <size_t MaxElementAdjacencies, size_t NodesPerFace, size_t InternalNodes>
 struct ElementInfo
 {
@@ -90,6 +122,20 @@ struct ElementInfo
     }
 };
 
+/*
+ * The data structure used by the mesh to identify segments of the boundary.
+ * 
+ * - nodes: A list of the indices of nodes on the boundary, in clockwise order.
+ *          Every adjacent pair of nodes should define a face in the mesh, which
+ *          guarantees that none are skipped.
+ * - faces: Each face stores *its number in the mesh, *the element it belongs to
+ *          (there can be only 1 since this is a boundary), and *an array of the
+ *          indices of the nodes on this face IN THE BOUNDARY REPRESENTATION.
+ * 
+ * Thus for face `i in a representation `repr`, the index of the `j-th` node on
+ * this face in the boundary representation is `face[i].nodes[j]`, but the index
+ * __in the parent mesh__ is `repr.nodes[face[i].nodes[j]]`.
+ */
 template <class CoordT, size_t NodesPerFace>
 struct BoundaryRepresentation
 {
@@ -109,6 +155,7 @@ struct BoundaryRepresentation
     std::vector<FaceDetails> faces;
 };
 
+// Error codes for exceptions thrown when building boundary representation.
 enum class BoundaryError
 {
     LessThanTwoNodes,
@@ -116,6 +163,7 @@ enum class BoundaryError
     FaceIsInternal
 };
 
+// Thrown during boundary construction in some cases.
 class BoundaryException : public std::exception
 {
 public:
@@ -141,13 +189,13 @@ private:
  * indices of their 3 vertices in the array of nodes, and a collection of
  * bounding curves specified by an ordered list of indices of nodes that, when
  * connected by line segments, form the curve.
- *
- * I am not implementing much in the way of sanity checking for the mesh;
- * e.g. "bounding curves" could be not on the boundary of the mesh and nothing
- * untoward would happen, there could be orphan nodes, the triangles don't form
- * a partition of the domain, etc. It is primarily intended as a data structure
- * to facilitate finite element simulation and the structure of the mesh will
- * come from an external mesh generator.
+ * 
+ * Note that there is not extensive checking on the geometry; there could be
+ * disjoint parts of the mesh, etc. that are not caught when initializing. What
+ * is checked is that each triangle is defined by a set of control nodes in
+ * clockwise order (even if the given nodes were counterclockwise), and that
+ * boundary curves are actually on a boundary and are composed of a connected set
+ * of faces, again specified in clockwise order.
  *
  * TEMPLATE PARAMETERS
  * -------------------
@@ -160,12 +208,14 @@ private:
  *    element; this is the number of nodes in the set of all nodes on either
  *    the element or any of the elements that neighbor it.
  *
- *
  * When setting `MaxElementAdjacencies` and `MaxNodeAdjacencies`, note that
  * an exception *will* be thrown if these values are exceeded. It is set as
  * a template parameter to optimize storage space; just increase it as
  * needed and recompile. The performance penalty for extra space should be
  * reasonable.
+ * 
+ * I have put exception handling code to give you a nice error message letting
+ * you know exactly where your mesh went wrong when these exceptions are thrown.
  */
 template <class CoordT, size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
           size_t NodesPerFace = 0, size_t InternalNodes = 0>
@@ -184,6 +234,31 @@ public:
      * interface. The elements in `nodes` and `tets` should support `get<i>` for
      * element access, and elements of `bounding_curves` should be lists of
      * node indices in a format that allows indexing with `[]`.
+     * 
+     * The initialization does the following:
+     *   - Add all node coordinates to the mesh and instantiate triangles,
+     *     checking that triangle vertices are given clockwise. They are switched
+     *     to clockwise order if not.
+     *   - Build the arrays of nodes adjacent to each node and elements adjacent
+     *     to each element
+     *   - Assign a single, unique number to each face in the mesh
+     *     (exposed in the public interface as element(i).faces)
+     *   - If either of NodesPerFace or InternalNodes is not 0, assign numbers
+     *     to each of these extra nodes. This is simply done in ascending order
+     *     by element. For nodes on faces, the code assumes they are equally
+     *     spaced and assigns coordinates as such. For internal nodes there is
+     *     not really a corresponding assumption; their coordinates are all set
+     *     as (0, 0).
+     *   - Finally, build the representation of each boundary given. This
+     *     operation throws an exception if
+     *       * only one node is given on the boundary
+     *       * two adjacent nodes on the boundary don't form a face contained in
+     *         the mesh
+     *       * The specified nodes don't form a collection of faces on the
+     *         boundary in clockwise order, and also don't do so when reversed.
+     *         I believe if all are faces in the mesh, this is only possible if
+     *         a face is internal to the mesh
+     *       * A face internal to the mesh is contained in the 'boundary'.
      */
     template <class NodeContainer, class ElContainer, class CurveContainer>
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
@@ -249,11 +324,13 @@ public:
         return m_nodes.at(i);
     }
 
+    // Coordinates of the i-th node
     const std::array<CoordT, 2> &coord(size_t i) const
     {
         return node(i).coords;
     }
 
+    // All nodes adjacent to the i-th node
     const smv::SmallVector<size_t, MaxNodeAdjacencies> &adjacent_nodes(size_t i) const
     {
         return node(i).adjacent_nodes;
@@ -268,6 +345,7 @@ public:
     size_t num_nodes() const noexcept { return m_nodes.size(); }
     size_t num_boundaries() const noexcept { return m_boundaries.size(); }
 
+    // The average bandwidth of a finite element matrix assembled from this mesh.
     double average_bandwidth() const
     {
         std::vector<size_t> max_dist(num_nodes(), 0);
@@ -291,6 +369,8 @@ public:
         return total / static_cast<double>(num_nodes());
     }
 
+    // Heuristically renumber the nodes of the mesh using a greedy algorithm, to
+    // attempt to minimize the average bandwidth of a finite element matrix.
     void renumber_nodes()
     {
         constexpr auto sentinel = static_cast<size_t>(-1);
