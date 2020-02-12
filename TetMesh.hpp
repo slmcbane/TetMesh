@@ -1432,6 +1432,67 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(mesh.coord(4)[1] == doctest::Approx(1.0 / 3));
 } // TEST_CASE
 
+TEST_CASE("Fourth order mesh")
+{
+    const std::vector<std::array<int, 2>> nodes = {
+        std::array<int, 2>{-1, -1},
+        std::array<int, 2>{-1, 1},
+        std::array<int, 2>{1, 1},
+        std::array<int, 2>{1, -1}
+    };
+
+    const std::vector<std::array<int, 3>> tets = {
+        std::array<int, 3>{0, 1, 3},
+        std::array<int, 3>{1, 3, 2}
+    };
+
+    const std::array<std::array<size_t, 3>, 1> boundaries = { 3, 2, 1 };
+
+    TetMesh<int, 1, 24, 3, 3> mesh(nodes, tets, boundaries);
+    mesh.renumber_nodes();
+    
+    auto el = mesh.element(0);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{ 0, 1, 2 });
+    REQUIRE(el.face_nodes == std::array<std::array<size_t, 3>, 3>{
+        3, 4, 5, 6, 7, 8, 9, 10, 11});
+    REQUIRE(el.internal_nodes == std::array<size_t, 3>{12, 13, 14});
+    
+    el = mesh.element(1);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{2, 1, 15});
+    REQUIRE(el.face_nodes == std::array<std::array<size_t, 3>, 3>{
+        8, 7, 6, 16, 17, 18, 19, 20, 21});
+    REQUIRE(el.internal_nodes == std::array<size_t, 3>{22, 23, 24});
+    
+    auto nodeadj = mesh.adjacent_nodes(8);
+    REQUIRE(nodeadj.size() == 24);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 24; ++i)
+    {
+        REQUIRE(nodeadj[i] == (i + (i >= 8)));
+    }
+    
+    nodeadj = mesh.adjacent_nodes(9);
+    REQUIRE(nodeadj.size() == 14);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 14; ++i)
+    {
+        REQUIRE(nodeadj[i] == i + (i >= 9));
+    }
+    
+    nodeadj = mesh.adjacent_nodes(15);
+    REQUIRE(nodeadj.size() == 14);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    REQUIRE(nodeadj[0] == 1);
+    REQUIRE(nodeadj[1] == 2);
+    REQUIRE(nodeadj[2] == 6);
+    REQUIRE(nodeadj[3] == 7);
+    REQUIRE(nodeadj[4] == 8);
+    for (size_t i = 5; i < 13; ++i)
+    {
+        REQUIRE(nodeadj[i] == i + 11);
+    }
+}
+
 TEST_CASE("A larger third order mesh boundary test")
 {
     const std::array<std::array<double, 2>, 12> nodes = {
