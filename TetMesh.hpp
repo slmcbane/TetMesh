@@ -700,28 +700,36 @@ private:
         for (size_t facei = 0; facei < 3; ++facei)
         {
             const auto &face_nodes = el.face_nodes[facei];
-            add_node_adjacency(face_nodes[0], face_nodes[1]);
-            add_node_adjacency(face_nodes[1], face_nodes[0]);
+            for (size_t i = 0; i < NodesPerFace; ++i)
+            {
+                for (size_t j = i+1; j < NodesPerFace; ++j)
+                {
+                    add_node_adjacency(face_nodes[i], face_nodes[j]);
+                    add_node_adjacency(face_nodes[j], face_nodes[i]);
+                }
+            }
             
             for (size_t facej = facei+1; facej < 3; ++facej)
             {
                 const auto &other_face_nodes = el.face_nodes[facej];
-                add_node_adjacency(face_nodes[0], other_face_nodes[0]);
-                add_node_adjacency(face_nodes[0], other_face_nodes[1]);
-                add_node_adjacency(face_nodes[1], other_face_nodes[0]);
-                add_node_adjacency(face_nodes[1], other_face_nodes[1]);
-                add_node_adjacency(other_face_nodes[0], face_nodes[0]);
-                add_node_adjacency(other_face_nodes[0], face_nodes[1]);
-                add_node_adjacency(other_face_nodes[1], face_nodes[0]);
-                add_node_adjacency(other_face_nodes[1], face_nodes[1]);
+                for (size_t i = 0; i < NodesPerFace; ++i)
+                {
+                    for (size_t j = 0; j < NodesPerFace; ++j)
+                    {
+                        add_node_adjacency(face_nodes[i], other_face_nodes[j]);
+                        add_node_adjacency(other_face_nodes[j], face_nodes[i]);
+                    }
+                }
             }
 
             for (size_t node: el.control_nodes)
             {
-                add_node_adjacency(face_nodes[0], node);
-                add_node_adjacency(face_nodes[1], node);
-                add_node_adjacency(node, face_nodes[0]);
-                add_node_adjacency(node, face_nodes[1]);
+                for (size_t i = 0; i < NodesPerFace; ++i)
+                {
+                    add_node_adjacency(face_nodes[i], node);
+                    add_node_adjacency(node, face_nodes[i]);
+                }
+
                 for (size_t inode: el.internal_nodes)
                 {
                     add_node_adjacency(node, inode);
@@ -731,10 +739,11 @@ private:
 
             for (size_t node: el.internal_nodes)
             {
-                add_node_adjacency(face_nodes[0], node);
-                add_node_adjacency(face_nodes[1], node);
-                add_node_adjacency(node, face_nodes[0]);
-                add_node_adjacency(node, face_nodes[1]);
+                for (size_t i = 0; i < NodesPerFace; ++i)
+                {
+                    add_node_adjacency(face_nodes[i], node);
+                    add_node_adjacency(node, face_nodes[i]);
+                }
             }
 
             for (size_t other_el_index: el.adjacent_elements)
@@ -744,8 +753,10 @@ private:
                 if (it != other_el.faces.end())
                 {
                     auto which = it - other_el.faces.begin();
-                    other_el.face_nodes[which][0] = face_nodes[1];
-                    other_el.face_nodes[which][1] = face_nodes[0];
+                    for (size_t i = 0; i < NodesPerFace; ++i)
+                    {
+                        other_el.face_nodes[which][i] = face_nodes[NodesPerFace-i-1];
+                    }
                 }
             }
         }
