@@ -1214,6 +1214,60 @@ TEST_CASE("Test constructing a first order tet mesh w/ its adjacencies")
     }
 } // TEST_CASE
 
+TEST_CASE("Second order mesh")
+{
+    const std::vector<std::array<int, 2>> nodes = {
+        std::array<int, 2>{-1, -1},
+        std::array<int, 2>{-1, 1},
+        std::array<int, 2>{1, 1},
+        std::array<int, 2>{1, -1}
+    };
+
+    const std::vector<std::array<int, 3>> tets = {
+        std::array<int, 3>{0, 1, 3},
+        std::array<int, 3>{1, 3, 2}
+    };
+
+    const std::array<std::array<size_t, 3>, 1> boundaries = { 3, 2, 1 };
+
+    TetMesh<int, 1, 8, 1> mesh(nodes, tets, boundaries);
+    mesh.renumber_nodes();
+    
+    auto el = mesh.element(0);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{ 0, 1, 2 });
+    REQUIRE(el.face_nodes == std::array<std::array<size_t, 1>, 3>{ 3, 4, 5 });
+    REQUIRE(el.adjacent_elements[0] == 1);
+    
+    el = mesh.element(1);
+    REQUIRE(el.control_nodes == std::array<size_t, 3>{ 2, 1, 6 });
+    REQUIRE(el.face_nodes == std::array<std::array<size_t, 1>, 3>{ 4, 7, 8 });
+    REQUIRE(el.adjacent_elements[0] == 0);
+    
+    const auto &bound = mesh.boundary(0);
+    REQUIRE(bound.nodes.size() == 5);
+    REQUIRE(bound.nodes[0] == 1);
+    REQUIRE(bound.nodes[1] == 7);
+    REQUIRE(bound.nodes[2] == 6);
+    REQUIRE(bound.nodes[3] == 8);
+    REQUIRE(bound.nodes[4] == 2);
+    
+    auto nodeadj = mesh.adjacent_nodes(4);
+    REQUIRE(nodeadj.size() == 8);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 8; ++i)
+    {
+        REQUIRE(nodeadj[i] == (i + (i >= 4)));
+    }
+    
+    nodeadj = mesh.adjacent_nodes(5);
+    REQUIRE(nodeadj.size() == 5);
+    std::sort(nodeadj.begin(), nodeadj.end());
+    for (size_t i = 0; i < 5; ++i)
+    {
+        REQUIRE(nodeadj[i] == i);
+    }
+} // TEST_CASE
+
 TEST_CASE("Test constructing a third order mesh")
 {
     const std::vector<std::array<double, 2>> nodes = {
