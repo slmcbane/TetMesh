@@ -10,13 +10,13 @@ std::ostream &operator<<(std::ostream &stream,
 {
     stream << "Mesh Information\n"
            << "================\n"
-           << "Mesh contains " << mesh.num_vertices() << " vertices:\n";
+           << "Mesh contains " << mesh.num_nodes() << " nodes:\n";
 
-    for (size_t i = 0; i < mesh.num_vertices(); ++i)
+    for (size_t i = 0; i < mesh.num_nodes(); ++i)
     {
-        const auto &coord = mesh.coordinate(i);
+        const auto &coord = mesh.coord(i);
         stream << "  (" << coord[0] << ", " << coord[1] << ')';
-        stream << (i < mesh.num_vertices() - 1 ? ",\n" : "\n");
+        stream << (i < mesh.num_nodes() - 1 ? ",\n" : "\n");
     }
 
     stream << "\nMesh contains " << mesh.num_elements() << " elements:\n";
@@ -72,6 +72,18 @@ std::ostream &operator<<(std::ostream &stream,
         }
     }
 
+    stream << '\n' << "  Boundary information\n"
+                   << "  --------------------\n";
+    for (size_t i = 0; i < mesh.num_boundaries(); ++i)
+    {
+        stream << "    Boundary defined by nodes: (";
+        const auto &nodes = mesh.boundary(i).nodes;
+        for (size_t j = 0; j < nodes.size(); ++j)
+        {
+            stream << nodes[j] << (j == nodes.size()-1 ? ")\n" : ", ");
+        }
+    }
+
     return stream;
 }
 
@@ -107,9 +119,19 @@ const std::array<std::array<size_t, 3>, 14> tets = {
     7, 10, 8
 };
 
+const std::array<std::array<size_t, 5>, 1> boundaries = {
+    0, 4, 3, 5, 2
+};
+
 int main()
 {
-    const msh::TetMesh<double, 11, 36, 2, 1> mesh(nodes, tets, std::vector<std::vector<int>>());
+    msh::TetMesh<double, 11, 36> mesh(nodes, tets, boundaries);
     std::cout << mesh;
+    std::cout << "Average bandwidth:  " << mesh.average_bandwidth() << "\n";
+
+    std::cout << "\n\nRenumbering-----------------------------------------\n\n\n";
+    mesh.renumber_nodes();
+    std::cout << mesh;
+    std::cout << "Average bandwidth:  " << mesh.average_bandwidth() << "\n";
     return 0;
 }
