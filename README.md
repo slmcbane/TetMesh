@@ -13,6 +13,14 @@ checks. The primary missing functionality in this version is serialization;
 I would like to be able to save the mesh in an HDF5 group but I haven't had the
 time to figure out the HDF5 interface yet.
 
+## Dependency
+This library depends on the repository
+[SmallVector](https://github.com/slmcbane/SmallVector) to provide a utility
+data structure. This version of the code has been tested against SmallVector
+v1.0.0. You may wish to download the archive of the tagged release from
+Github and copy the file `SmallVector.hpp` to your build directory, rather
+than clone that repository.
+
 ## Version
 This is `v1.0.0`.
 
