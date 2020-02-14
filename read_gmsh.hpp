@@ -44,6 +44,7 @@ struct ParsingException : public std::exception
 };
 
 static const ParsingException unrecognized_header("Unrecognized section header");
+static const ParsingException past_the_end("Requested access to data past the end of what was read");
 
 enum class SectionType
 {
@@ -55,49 +56,48 @@ enum class SectionType
 class ParserState
 {
     size_t m_offset;
-    const unsigned char *m_data;
+    const char *m_data;
     size_t m_size;
-    size_t int_size;
+    size_t m_int_size;
 
     static_assert(sizeof(double) == 8, "Assumes 64-bit double");
 
 public:
-    ParserState(const unsigned char *ptr, size_t size) noexcept :
-        m_offset{0}, m_data{ptr}, m_size{size}, int_size{0}
-    {}
-
     ParserState(const char *ptr, size_t size) noexcept :
-        ParserState(reinterpret_cast<const unsigned char *>(ptr), size)
+        m_offset{0}, m_data{ptr}, m_size{size}, m_int_size{0}
     {}
 
     size_t offset() const noexcept { return m_offset; }
+
+    void set_data_size(size_t sz) noexcept { m_int_size = sz; }
+    size_t int_size() const noexcept { return m_int_size; }
 
     void add_offset(size_t i)
     {
         if ((m_offset + i) > m_size)
         {
-            throw ParsingException("Requested offset increment past end of read data");
+            throw past_the_end;
         }
         m_offset += i;
     }
 
-    const unsigned char *data() const
+    const char *data() const
     {
         if (m_offset >= m_size)
         {
-            throw ParsingException("Requested access to data past the end of what was read");
+            throw past_the_end;
         }
         return m_data + m_offset;
     }
 
-    unsigned char current() const
+    char current() const
     {
         return *data();
     }
 
     size_t size() const noexcept { return m_size; }
 
-    bool compare_next(const unsigned char *str, size_t len) const noexcept
+    bool compare_next(const char *str, size_t len) const noexcept
     {
         if (len > (m_size - m_offset))
         {
@@ -109,9 +109,50 @@ public:
         }
     }
 
-    bool compare_next(const char *str, size_t len) const noexcept
+    double extract_ascii_double()
     {
-        return compare_next(reinterpret_cast<const unsigned char*>(str), len);
+        char *end;
+        double val = std::strtod(data(), &end);
+        add_offset(end - data());
+        return val;
+    }
+
+    long extract_ascii_int()
+    {
+        char *end;
+        long val = std::strtol(data(), &end, 10);
+        add_offset(end - data());
+        m_offset = end - m_data;
+        return val;
+    }
+
+    size_t extract_int()
+    {
+        switch(int_size())
+        {
+            case 4:
+                if (m_size - m_offset < 4)
+                {
+                    throw past_the_end;
+                }
+                static_assert(sizeof(uint32_t) == 4, "If 4 bytes isn't 32 bits I can't even");
+                uint32_t i;
+                std::memcpy(&i, data(), 4);
+                add_offset(4);
+                return static_cast<size_t>(i);
+            case 8:
+                if (m_size - m_offset < 8)
+                {
+                    throw past_the_end;
+                }
+                static_assert(sizeof(uint64_t) == 8, "If 8 bytes isn't 64 bits I can't even");
+                uint64_t j;
+                std::memcpy(&j, data(), 8);
+                add_offset(8);
+                return static_cast<size_t>(j);
+            default:
+                throw ParsingException("Unimplemented int_size: expected 4 or 8 bytes");
+        }
     }
 };
 
@@ -332,6 +373,65 @@ TEST_CASE("[GMSH] Parse section headers")
     state = ParserState("blah", 4);
     REQUIRE_THROWS_WITH(parse_section_header(state),
                         "Expected to read a section header");
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+// Doesn't return anything; I'm not planning to figure out exactly which msh
+// versions I support, and the only outcome needed is the setting of data_size
+// in the ParserState.
+inline void
+parse_mesh_format(ParserState &state)
+{
+    auto header = parse_section_header(state);
+    if (header != SectionType::MeshFormat)
+    {
+        throw ParsingException("Did not read mesh format as first section in file");
+    }
+
+    state.extract_ascii_double();
+    long is_binary = state.extract_ascii_int();
+    
+    if (is_binary == 0)
+    {
+        throw ParsingException("Only binary mode msh files accepted");
+    }
+
+    long data_size = state.extract_ascii_int();
+
+    // There is a newline after the data size in binary files.
+    if (!(state.current() == '\n'))
+    {
+        throw ParsingException("Expected \\n after data size in format");
+    }
+    state.add_offset(1);
+
+    // It looks like gmsh uses a 32-bit int for the endianness check, not
+    // what data_size says.
+    state.set_data_size(4);
+    size_t endian_check = state.extract_int();
+    if (endian_check != 1)
+    {
+        throw ParsingException("Conversion of endianness not implemented");
+    }
+    state.set_data_size(data_size);
+}
+
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parsing the mesh format")
+{
+    // This is an example from a real binary .msh file
+    const char *valid_format = "$MeshFormat\n4.1 1 8\n\x01\0\0\0\n$EndMeshFormat";
+    ParserState state(valid_format, 40);
+    REQUIRE_NOTHROW(parse_mesh_format(state));
+    REQUIRE(state.int_size() == 8);
+
+    const char *test_format = "$MeshFormat\n4.1 0 8\n$EndMeshFormat";
+    state = ParserState(test_format, 34);
+    REQUIRE_THROWS_WITH(parse_mesh_format(state), "Only binary mode msh files accepted");
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
