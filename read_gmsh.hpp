@@ -602,6 +602,8 @@ parse_physical_names(ParserState &state)
     size_t num_physical_names = state.extract_ascii_int();
 
     PhysicalNames names;
+    names.dims.reserve(num_physical_names);
+    names.names.reserve(num_physical_names);
 
     for (size_t i = 0; i < num_physical_names; ++i)
     {
@@ -760,8 +762,139 @@ TEST_CASE("Test parse_all_points")
 /********************************************************************************
  *******************************************************************************/
 
-/*
+struct CurveData
+{
+    std::array<double, 3> minima;
+    std::array<double, 3> maxima;
+    std::vector<std::string> physical_tags;
+    std::vector<size_t> bounding_points;
+};
 
+inline CurveData
+parse_curve_data(ParserState &state, int32_t expected, size_t num_points,
+                 const PhysicalNames &physical_names)
+{
+    CurveData curve;
+
+    int32_t curve_tag = state.extract_int();
+    if (curve_tag != expected+1)
+    {
+        throw ParsingException("Got non-sequential curve tag");
+    }
+    state.extract_doubles(curve.minima.data(), 3);
+    state.extract_doubles(curve.maxima.data(), 3);
+
+    size_t num_tags = state.extract_size_t();
+    curve.physical_tags.reserve(num_tags);
+    for (size_t i = 0; i < num_tags; ++i)
+    {
+        size_t tag = state.extract_int() - 1;
+        if (tag >= physical_names.dims.size())
+        {
+            throw ParsingException("Physical tag out of bounds in parse_curve_data");
+        }
+        if (physical_names.dims.at(tag) != 1)
+        {
+            throw ParsingException("Physical tag in parse_curve_data does not refer to curve");
+        }
+        curve.physical_tags.push_back(physical_names.names.at(tag));
+    }
+
+    size_t num_bpoints = state.extract_size_t();
+    curve.bounding_points.reserve(num_bpoints);
+    for (size_t i = 0; i < num_bpoints; ++i)
+    {
+        int32_t tag = state.extract_int();
+        size_t pt_tag = tag < 0 ? -(tag+1) : tag-1;
+        if (pt_tag >= num_points)
+        {
+            throw ParsingException("Point tag in parse_curve_data out of bounds");
+        }
+        curve.bounding_points.push_back(pt_tag);
+    }
+    return curve;
+}
+
+inline std::vector<CurveData>
+parse_all_curves(ParserState &state, size_t num_curves, size_t num_points,
+                 const PhysicalNames &physical_names)
+{
+    std::vector<CurveData> curves;
+    for (size_t i = 0; i < num_curves; ++i)
+    {
+        curves.emplace_back(parse_curve_data(state, i, num_points, physical_names));
+    }
+    return curves;
+}
+
+/********************************************************************************
+ * Test parse_all_curves
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_all_curves")
+{
+    PhysicalNames physical_names{
+        std::vector<size_t>{0, 0, 1, 2},
+        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}};
+
+    const char data[] = "\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf\0\0"
+                        "\0\0\0\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0?\0\0"
+                        "\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\x03\0\0\0\x02\0\0\0\0\0"
+                        "\0\0\x01\0\0\0\xfe\xff\xff\xff\x02\0\0\0\0\0\0\0\0\0"
+                        "\xf0\xbf\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+                        "\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+                        "\x02\0\0\0\0\0\0\0\x02\0\0\0\xfd\xff\xff\xff\x03\0\0\0"
+                        "\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\0\0\0"
+                        "\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0"
+                        "\0\0\0\0\0\x03\0\0\0\x02\0\0\0\0\0\0\0\x03\0\0\0\xfc\xff"
+                        "\xff\xff\x04\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf"
+                        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0\xbf\0\0"
+                        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x02\0\0\0\0\0\0\0\x04\0\0\0"
+                        "\xff\xff\xff\xff";
+
+    ParserState state(data, sizeof(data));
+    state.set_data_size(8);
+    const auto curves = parse_all_curves(state, 4, 4, physical_names);
+
+    REQUIRE(curves.size() == 4);
+
+    REQUIRE(curves[0].minima == std::array<double, 3>{-1, -1, 0});
+    REQUIRE(curves[0].maxima == std::array<double, 3>{-1, 1, 0});
+    REQUIRE(curves[0].physical_tags.size() == 1);
+    REQUIRE(curves[0].physical_tags[0] == "ports");
+    REQUIRE(curves[0].bounding_points.size() == 2);
+    REQUIRE(curves[0].bounding_points[0] == 0);
+    REQUIRE(curves[0].bounding_points[1] == 1);
+
+    REQUIRE(curves[1].minima == std::array<double, 3>{-1, 1, 0});
+    REQUIRE(curves[1].maxima == std::array<double, 3>{1, 1, 0});
+    REQUIRE(curves[1].physical_tags.size() == 0);
+    REQUIRE(curves[1].bounding_points.size() == 2);
+    REQUIRE(curves[1].bounding_points[0] == 1);
+    REQUIRE(curves[1].bounding_points[1] == 2);
+
+    REQUIRE(curves[2].minima == std::array<double, 3>{1, -1, 0});
+    REQUIRE(curves[2].maxima == std::array<double, 3>{1, 1, 0});
+    REQUIRE(curves[2].physical_tags.size() == 1);
+    REQUIRE(curves[2].physical_tags[0] == "ports");
+    REQUIRE(curves[2].bounding_points.size() == 2);
+    REQUIRE(curves[2].bounding_points[0] == 2);
+    REQUIRE(curves[2].bounding_points[1] == 3);
+
+    REQUIRE(curves[3].minima == std::array<double, 3>{-1, -1, 0});
+    REQUIRE(curves[3].maxima == std::array<double, 3>{1, -1, 0});
+    REQUIRE(curves[3].physical_tags.size() == 0);
+    REQUIRE(curves[3].bounding_points.size() == 2);
+    REQUIRE(curves[3].bounding_points[0] == 3);
+    REQUIRE(curves[3].bounding_points[1] == 0);
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+/*
 inline auto
 parse_entities(ParserState &state, const PhysicalNames &physical_names)
 {
@@ -774,6 +907,10 @@ parse_entities(ParserState &state, const PhysicalNames &physical_names)
     {
         throw ParsingException("3D meshes not implemented");
     }
+
+    auto points = parse_all_points(state, num_points, physical_names);
+    auto curves = parse_all_curves(state, num_curves, physical_names);
+    auto surfaces = parse_all_surfaces(state, num_surfaces, physical_names);
 }
 
 inline void
@@ -795,10 +932,12 @@ parse_gmsh_file(ParserState &state)
         }
         section_parsed[static_cast<size_t>(what_section)] = true;
         
+        PhysicalNames physical_names;
+
         switch(what_section)
         {
             case SectionType::PhysicalNames:
-                auto physical_names = parse_physical_names(state);
+                physical_names = parse_physical_names(state);
                 break;
             case SectionType::Entities:
                 auto entities = parse_entities(state, physical_names);
