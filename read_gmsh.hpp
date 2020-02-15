@@ -539,11 +539,83 @@ TEST_CASE("Test parsing end of section")
 /********************************************************************************
  *******************************************************************************/
 
+inline std::string
+parse_ascii_string(ParserState &state)
+{
+    if (state.current() != '"')
+    {
+        throw ParsingException("Expected ASCII string");
+    }
+    state.add_offset(1);
+
+    const char *end = reinterpret_cast<const char*>(
+        std::memchr(state.data(), '"', state.size() - state.offset()));
+
+    if (end == nullptr)
+    {
+        throw ParsingException("Did not find closing quote for ASCII string");
+    }
+    
+    std::string str(state.data(), end);
+    state.add_offset(1 + end - state.data());
+    return str;
+}
+
+/********************************************************************************
+ * Test parse of ascii string
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_ascii_string")
+{
+    ParserState state("\"bottom_points\"", 15);
+    REQUIRE(parse_ascii_string(state) == std::string("bottom_points"));
+
+    state = ParserState("\"bottom_points", 14);
+    REQUIRE_THROWS_WITH(parse_ascii_string(state), "Did not find closing quote for ASCII string");
+
+    state = ParserState("bottom_points\"", 14);
+    REQUIRE_THROWS_WITH(parse_ascii_string(state), "Expected ASCII string");
+}
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
 struct PhysicalNames
 {
     std::vector<size_t> dims;
     std::vector<std::string> names;
 };
+
+inline PhysicalNames
+parse_physical_names(ParserState &state)
+{
+    size_t num_physical_names = state.extract_ascii_int();
+
+    PhysicalNames names;
+
+    for (size_t i = 0; i < num_physical_names; ++i)
+    {
+        names.dims.push_back(state.extract_ascii_int());
+
+        size_t tag_value = state.extract_ascii_int();
+        if (tag_value != i+1)
+        {
+            throw ParsingException("Expected sequential tags 1:N in PhysicalNames");
+        }
+
+        names.names.emplace_back(parse_ascii_string(state));
+        
+        if (state.current() != '\n')
+        {
+            throw ParsingException("Expected newline after name in PhysicalNames");
+        }
+        state.add_offset(1);
+    }
+
+    return names;
+}
 
 struct PointData
 {
