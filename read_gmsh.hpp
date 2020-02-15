@@ -503,6 +503,7 @@ TEST_CASE("Test parsing the mesh format")
 inline void
 parse_section_end(ParserState &state, SectionType what_section)
 {
+    state.skip_whitespace();
     if (!state.compare_next("$End", 4))
     {
         throw ParsingException("Expected end of section");
@@ -995,8 +996,14 @@ TEST_CASE("Test parse_all_surfaces")
 /********************************************************************************
  *******************************************************************************/
 
-/*
-inline auto
+struct Entities
+{
+    std::vector<PointData> points;
+    std::vector<CurveData> curves;
+    std::vector<SurfaceData> surfs;
+};
+
+inline Entities
 parse_entities(ParserState &state, const PhysicalNames &physical_names)
 {
     size_t num_points = state.extract_int();
@@ -1010,10 +1017,58 @@ parse_entities(ParserState &state, const PhysicalNames &physical_names)
     }
 
     auto points = parse_all_points(state, num_points, physical_names);
-    auto curves = parse_all_curves(state, num_curves, physical_names);
-    auto surfaces = parse_all_surfaces(state, num_surfaces, physical_names);
+    auto curves = parse_all_curves(state, num_curves, num_points, physical_names);
+    auto surfaces = parse_all_surfaces(state, num_surfaces, num_curves, physical_names);
+    return Entities{std::move(points), std::move(curves), std::move(surfaces)};
 }
 
+/********************************************************************************
+ * Test parse_entities
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_all_surfaces")
+{
+    PhysicalNames physical_names{
+        std::vector<size_t>{0, 0, 1, 2},
+        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}};
+
+    const char data[] = "\x04\0\0\0\0\0\0\0\x04\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0"
+                        "\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0"
+                        "\0\0\xf0\xbf\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\x02\0\0"
+                        "\0\x02\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0?\0\0\0"
+                        "\0\0\0\0\0\x01\0\0\0\0\0\0\0\x01\0\0\0\x03\0\0\0\0\0\0"
+                        "\0\0\0\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0\0"
+                        "\0\0\0\0\x01\0\0\0\x04\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0"
+                        "\0\xf0\xbf\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\x02\0\0\0"
+                        "\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf\0\0"
+                        "\0\0\0\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0?\0\0\0"
+                        "\0\0\0\0\0\x01\0\0\0\0\0\0\0\x03\0\0\0\x02\0\0\0\0\0\0"
+                        "\0\x01\0\0\0\xfe\xff\xff\xff\x02\0\0\0\0\0\0\0\0\0\xf0"
+                        "\xbf\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\0\0\0\0\0\0\xf0?"
+                        "\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x02\0"
+                        "\0\0\0\0\0\0\x02\0\0\0\xfd\xff\xff\xff\x03\0\0\0\0\0\0"
+                        "\0\0\0\xf0?\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\0\0\0\0\0\0"
+                        "\0\0\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0\0\0"
+                        "\0\0\0\x03\0\0\0\x02\0\0\0\0\0\0\0\x03\0\0\0\xfc\xff"
+                        "\xff\xff\x04\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0"
+                        "\xbf\0\0\0\0\0\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0"
+                        "\xbf\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x02\0\0\0\0\0\0\0"
+                        "\x04\0\0\0\xff\xff\xff\xff\x01\0\0\0\0\0\0\0\0\0\xf0"
+                        "\xbf\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+                        "\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0"
+                        "\0\x04\0\0\0\x04\0\0\0\0\0\0\0\x01\0\0\0\x02\0\0\0\x03"
+                        "\0\0\0\x04\0\0\0\n$EndEntities\n";
+
+    ParserState state(data, sizeof(data));
+    state.set_data_size(8);
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+/*
 inline void
 parse_gmsh_file(ParserState &state)
 {
