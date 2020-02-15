@@ -1225,7 +1225,6 @@ parse_nodes(ParserState &state, const Entities &entities)
     size_t num_nodes = state.extract_size_t();
     size_t min_node_tag = state.extract_size_t();
     size_t max_node_tag = state.extract_size_t();
-    printf("%ld %ld %ld %ld\n", num_entity_blocks, num_nodes, min_node_tag, max_node_tag);
 
     if (!(min_node_tag == 1 && max_node_tag == num_nodes))
     {
@@ -1239,15 +1238,12 @@ parse_nodes(ParserState &state, const Entities &entities)
     for (size_t e = 0; e < num_entity_blocks; ++e)
     {
         auto type_and_tag = parse_entity_type_and_tag(state, entities);
-        printf("%d  %ld\n", static_cast<int>(type_and_tag.first),
-                          type_and_tag.second);
         int32_t parametric = state.extract_int();
         if (parametric != 0)
         {
             throw ParsingException("No handling for parametric entities in parser");
         }
         size_t nodes_in_block = state.extract_size_t();
-        printf("nodes_in_block = %ld\n", nodes_in_block);
 
         static std::vector<size_t> node_tags;
         static std::vector<double> node_coords;
@@ -1255,12 +1251,6 @@ parse_nodes(ParserState &state, const Entities &entities)
         node_coords.resize(nodes_in_block * 3);
 
         state.extract_size_t(node_tags.data(), nodes_in_block);
-        printf("tags = ");
-        for (auto tag: node_tags)
-        {
-            printf("%ld ", tag-1);
-        }
-        printf("\n");
         state.extract_double(node_coords.data(), 3 * nodes_in_block);
 
         for (size_t n = 0; n < nodes_in_block; ++n)
