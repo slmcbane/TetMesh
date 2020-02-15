@@ -181,6 +181,14 @@ public:
         memcpy(dst, data(), n*8);
         add_offset(n * 8);
     }
+
+    void skip_whitespace()
+    {
+        while (offset() < size() && isspace(current()))
+        {
+            add_offset(1);
+        }
+    }
 };
 
 inline SectionType
@@ -373,7 +381,7 @@ parse_section_header(ParserState &state)
  *******************************************************************************/
 #ifdef DOCTEST_LIBRARY_INCLUDED
 
-TEST_CASE("[GMSH] Parse section headers")
+TEST_CASE("Parse section headers")
 {
     ParserState state("$Nodes\n", 7);
     REQUIRE(parse_section_header(state) == SectionType::Nodes);
@@ -555,7 +563,7 @@ parse_ascii_string(ParserState &state)
     {
         throw ParsingException("Did not find closing quote for ASCII string");
     }
-    
+
     std::string str(state.data(), end);
     state.add_offset(1 + end - state.data());
     return str;
@@ -568,7 +576,7 @@ parse_ascii_string(ParserState &state)
 
 TEST_CASE("Test parse_ascii_string")
 {
-    ParserState state("\"bottom_points\"", 15);
+    ParserState state("\"bottom_points\"", 16);
     REQUIRE(parse_ascii_string(state) == std::string("bottom_points"));
 
     state = ParserState("\"bottom_points", 14);
@@ -604,6 +612,7 @@ parse_physical_names(ParserState &state)
         {
             throw ParsingException("Expected sequential tags 1:N in PhysicalNames");
         }
+        state.skip_whitespace();
 
         names.names.emplace_back(parse_ascii_string(state));
         
@@ -616,6 +625,39 @@ parse_physical_names(ParserState &state)
 
     return names;
 }
+
+/********************************************************************************
+ * Test parse_physical_names
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_physical_names")
+{
+    const char data[] = "\n4\n0 1 \"top_points\"\n0 2 \"bottom_points\"\n1 3 \""
+                        "ports\"\n2 4 \"domain\"\n$EndPhysicalNames\n";
+    
+    ParserState state(data, sizeof(data));
+
+    auto names = parse_physical_names(state);
+    REQUIRE(names.dims.size() == 4);
+    REQUIRE(names.names.size() == 4);
+
+    REQUIRE(names.dims[0] == 0);
+    REQUIRE(names.dims[1] == 0);
+    REQUIRE(names.dims[2] == 1);
+    REQUIRE(names.dims[3] == 2);
+
+    REQUIRE(names.names[0] == "top_points");
+    REQUIRE(names.names[1] == "bottom_points");
+    REQUIRE(names.names[2] == "ports");
+    REQUIRE(names.names[3] == "domain");
+
+    REQUIRE_NOTHROW(parse_section_end(state, SectionType::PhysicalNames));
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
 
 struct PointData
 {
