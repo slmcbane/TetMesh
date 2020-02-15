@@ -481,7 +481,7 @@ TEST_CASE("Test parsing the mesh format")
     const char *valid_format = "$MeshFormat\n4.1 1 8\n\x01\0\0\0\n$EndMeshFormat";
     ParserState state(valid_format, 40);
     REQUIRE_NOTHROW(parse_mesh_format(state));
-    REQUIRE(state.int_size() == 8);
+    REQUIRE(state.data_size() == 8);
 
     const char *test_format = "$MeshFormat\n4.1 0 8\n$EndMeshFormat";
     state = ParserState(test_format, 34);
@@ -602,8 +602,44 @@ TEST_CASE("Test parse_all_points")
         std::vector<size_t>{0, 0, 1, 2},
         std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}
     };
-    
-    static_assert(false, "Finish it!");
+
+    const char data[] = "\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf\0\0\0"
+                        "\0\0\0\0\0\x01\0\0\0\0\0\0\0\x02\0\0\0\x02\0\0\0\0\0\0\0"
+                        "\0\0\xf0\xbf\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0\0"
+                        "\0\0\0\0\x01\0\0\0\x03\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0"
+                        "\0\xf0?\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\x01\0\0\0\x04"
+                        "\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0"
+                        "\0\0\x01\0\0\0\0\0\0\0\x02\0\0\0";
+
+    ParserState state(data, sizeof(data));
+    state.set_data_size(8);
+
+    auto pts = parse_all_points(state, 4, physical_names);
+    REQUIRE(pts.size() == 4);
+
+    REQUIRE(pts[0].coords[0] == doctest::Approx(-1.0));
+    REQUIRE(pts[0].coords[1] == doctest::Approx(-1.0));
+    REQUIRE(pts[0].coords[2] == 0);
+    REQUIRE(pts[0].physical_tags.size() == 1);
+    REQUIRE(pts[0].physical_tags[0] == "bottom_points");
+
+    REQUIRE(pts[1].coords[0] == doctest::Approx(-1.0));
+    REQUIRE(pts[1].coords[1] == doctest::Approx(1.0));
+    REQUIRE(pts[1].coords[2] == 0);
+    REQUIRE(pts[1].physical_tags.size() == 1);
+    REQUIRE(pts[1].physical_tags[0] == "top_points");
+
+    REQUIRE(pts[2].coords[0] == doctest::Approx(1.0));
+    REQUIRE(pts[2].coords[1] == doctest::Approx(1.0));
+    REQUIRE(pts[2].coords[2] == 0);
+    REQUIRE(pts[2].physical_tags.size() == 1);
+    REQUIRE(pts[2].physical_tags[0] == "top_points");
+
+    REQUIRE(pts[3].coords[0] == doctest::Approx(1.0));
+    REQUIRE(pts[3].coords[1] == doctest::Approx(-1.0));
+    REQUIRE(pts[3].coords[2] == 0);
+    REQUIRE(pts[3].physical_tags.size() == 1);
+    REQUIRE(pts[3].physical_tags[0] == "bottom_points");
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
