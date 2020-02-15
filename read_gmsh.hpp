@@ -1006,10 +1006,10 @@ struct Entities
 inline Entities
 parse_entities(ParserState &state, const PhysicalNames &physical_names)
 {
-    size_t num_points = state.extract_int();
-    size_t num_curves = state.extract_int();
-    size_t num_surfaces = state.extract_int();
-    size_t num_volumes = state.extract_int();
+    size_t num_points = state.extract_size_t();
+    size_t num_curves = state.extract_size_t();
+    size_t num_surfaces = state.extract_size_t();
+    size_t num_volumes = state.extract_size_t();
     
     if (num_volumes != 0)
     {
@@ -1027,7 +1027,7 @@ parse_entities(ParserState &state, const PhysicalNames &physical_names)
  *******************************************************************************/
 #ifdef DOCTEST_LIBRARY_INCLUDED
 
-TEST_CASE("Test parse_all_surfaces")
+TEST_CASE("Test parse_entities")
 {
     PhysicalNames physical_names{
         std::vector<size_t>{0, 0, 1, 2},
@@ -1062,6 +1062,87 @@ TEST_CASE("Test parse_all_surfaces")
 
     ParserState state(data, sizeof(data));
     state.set_data_size(8);
+
+    const auto entities = parse_entities(state, physical_names);
+
+    const auto &pts = entities.points;
+    {
+        REQUIRE(pts.size() == 4);
+
+        REQUIRE(pts[0].coords[0] == doctest::Approx(-1.0));
+        REQUIRE(pts[0].coords[1] == doctest::Approx(-1.0));
+        REQUIRE(pts[0].coords[2] == 0);
+        REQUIRE(pts[0].physical_tags.size() == 1);
+        REQUIRE(pts[0].physical_tags[0] == "bottom_points");
+
+        REQUIRE(pts[1].coords[0] == doctest::Approx(-1.0));
+        REQUIRE(pts[1].coords[1] == doctest::Approx(1.0));
+        REQUIRE(pts[1].coords[2] == 0);
+        REQUIRE(pts[1].physical_tags.size() == 1);
+        REQUIRE(pts[1].physical_tags[0] == "top_points");
+
+        REQUIRE(pts[2].coords[0] == doctest::Approx(1.0));
+        REQUIRE(pts[2].coords[1] == doctest::Approx(1.0));
+        REQUIRE(pts[2].coords[2] == 0);
+        REQUIRE(pts[2].physical_tags.size() == 1);
+        REQUIRE(pts[2].physical_tags[0] == "top_points");
+
+        REQUIRE(pts[3].coords[0] == doctest::Approx(1.0));
+        REQUIRE(pts[3].coords[1] == doctest::Approx(-1.0));
+        REQUIRE(pts[3].coords[2] == 0);
+        REQUIRE(pts[3].physical_tags.size() == 1);
+        REQUIRE(pts[3].physical_tags[0] == "bottom_points");
+    }
+
+    const auto &curves = entities.curves;
+    {
+        REQUIRE(curves.size() == 4);
+
+        REQUIRE(curves[0].minima == std::array<double, 3>{-1, -1, 0});
+        REQUIRE(curves[0].maxima == std::array<double, 3>{-1, 1, 0});
+        REQUIRE(curves[0].physical_tags.size() == 1);
+        REQUIRE(curves[0].physical_tags[0] == "ports");
+        REQUIRE(curves[0].bounding_points.size() == 2);
+        REQUIRE(curves[0].bounding_points[0] == 0);
+        REQUIRE(curves[0].bounding_points[1] == 1);
+
+        REQUIRE(curves[1].minima == std::array<double, 3>{-1, 1, 0});
+        REQUIRE(curves[1].maxima == std::array<double, 3>{1, 1, 0});
+        REQUIRE(curves[1].physical_tags.size() == 0);
+        REQUIRE(curves[1].bounding_points.size() == 2);
+        REQUIRE(curves[1].bounding_points[0] == 1);
+        REQUIRE(curves[1].bounding_points[1] == 2);
+
+        REQUIRE(curves[2].minima == std::array<double, 3>{1, -1, 0});
+        REQUIRE(curves[2].maxima == std::array<double, 3>{1, 1, 0});
+        REQUIRE(curves[2].physical_tags.size() == 1);
+        REQUIRE(curves[2].physical_tags[0] == "ports");
+        REQUIRE(curves[2].bounding_points.size() == 2);
+        REQUIRE(curves[2].bounding_points[0] == 2);
+        REQUIRE(curves[2].bounding_points[1] == 3);
+
+        REQUIRE(curves[3].minima == std::array<double, 3>{-1, -1, 0});
+        REQUIRE(curves[3].maxima == std::array<double, 3>{1, -1, 0});
+        REQUIRE(curves[3].physical_tags.size() == 0);
+        REQUIRE(curves[3].bounding_points.size() == 2);
+        REQUIRE(curves[3].bounding_points[0] == 3);
+        REQUIRE(curves[3].bounding_points[1] == 0);
+    }
+
+    const auto &surfaces = entities.surfs;
+    {
+        REQUIRE(surfaces.size() == 1);
+
+        REQUIRE(surfaces[0].minima == std::array<double, 3>{-1, -1, 0});
+        REQUIRE(surfaces[0].maxima == std::array<double, 3>{1, 1, 0});
+        REQUIRE(surfaces[0].physical_tags.size() == 1);
+        REQUIRE(surfaces[0].physical_tags[0] == "domain");
+        REQUIRE(surfaces[0].bounding_curves.size() == 4);
+        REQUIRE(surfaces[0].bounding_curves[0] == 0);
+        REQUIRE(surfaces[0].bounding_curves[1] == 1);
+        REQUIRE(surfaces[0].bounding_curves[2] == 2);
+        REQUIRE(surfaces[0].bounding_curves[3] == 3);
+    }
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
