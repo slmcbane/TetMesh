@@ -23,10 +23,14 @@
 #ifndef READ_GMSH_HPP
 #define READ_GMSH_HPP
 
+#include <array>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <utility>
+#include <vector>
 
 namespace msh
 {
@@ -43,7 +47,7 @@ struct ParsingException : public std::exception
     {}
 };
 
-static const ParsingException unrecognized_header("Unrecognized section header");
+static const ParsingException unrecognized_section_name("Unrecognized section name");
 static const ParsingException past_the_end("Requested access to data past the end of what was read");
 
 enum class SectionType
@@ -70,7 +74,7 @@ public:
     size_t offset() const noexcept { return m_offset; }
 
     void set_data_size(size_t sz) noexcept { m_int_size = sz; }
-    size_t int_size() const noexcept { return m_int_size; }
+    size_t data_size() const noexcept { return m_int_size; }
 
     void add_offset(size_t i)
     {
@@ -126,9 +130,22 @@ public:
         return val;
     }
 
-    size_t extract_int()
+    int32_t extract_int()
     {
-        switch(int_size())
+        if (m_size - m_offset < 4)
+        {
+            throw past_the_end;
+        }
+        int32_t i;
+        static_assert(sizeof(int32_t) == 4, "where is 4 bytes not 32 bits?");
+        std::memcpy(&i, data(), 4);
+        add_offset(4);
+        return i;
+    }
+    
+    size_t extract_size_t()
+    {
+        switch(data_size())
         {
             case 4:
                 if (m_size - m_offset < 4)
@@ -154,10 +171,20 @@ public:
                 throw ParsingException("Unimplemented int_size: expected 4 or 8 bytes");
         }
     }
+    
+    void extract_doubles(double *dst, size_t n)
+    {
+        if (n * 8 > m_size - m_offset)
+        {
+            throw past_the_end;
+        }
+        memcpy(dst, data(), n*8);
+        add_offset(n * 8);
+    }
 };
 
 inline SectionType
-get_mesh_format_header(ParserState &state)
+get_mesh_format_name(ParserState &state)
 {
     if (state.compare_next("MeshFormat", 10))
     {
@@ -165,11 +192,11 @@ get_mesh_format_header(ParserState &state)
         return SectionType::MeshFormat;
     }
 
-    throw unrecognized_header;
+    throw unrecognized_section_name;
 }
 
 inline SectionType
-get_ghost_elements_header(ParserState &state)
+get_ghost_elements_name(ParserState &state)
 {
     if (state.compare_next("GhostElements", 13))
     {
@@ -177,11 +204,11 @@ get_ghost_elements_header(ParserState &state)
         return SectionType::GhostElements;
     }
 
-    throw unrecognized_header;
+    throw unrecognized_section_name;
 }
 
 inline SectionType
-get_interpolation_scheme_header(ParserState &state)
+get_interpolation_scheme_name(ParserState &state)
 {
     if (state.compare_next("InterpolationScheme", 19))
     {
@@ -189,21 +216,22 @@ get_interpolation_scheme_header(ParserState &state)
         return SectionType::InterpolationScheme;
     }
 
-    throw unrecognized_header;
+    throw unrecognized_section_name;
 }
 
 inline SectionType
-get_letter_n_header(ParserState &state)
+get_letter_n_name(ParserState &state)
 {
     if (!state.compare_next("Node", 4))
     {
-        throw unrecognized_header;
+        throw unrecognized_section_name;
     }
 
     state.add_offset(4);
     switch(state.current())
     {
         case 's':
+            state.add_offset(1);
             return SectionType::Nodes;
         case 'D':
             if (state.compare_next("Data", 4))
@@ -212,12 +240,12 @@ get_letter_n_header(ParserState &state)
                 return SectionType::NodeData;
             }
         default:
-            throw unrecognized_header;
+            throw unrecognized_section_name;
     }
 }
 
 inline SectionType
-get_letter_p_header(ParserState &state)
+get_letter_p_name(ParserState &state)
 {
     state.add_offset(1);
     switch(state.current())
@@ -246,12 +274,12 @@ get_letter_p_header(ParserState &state)
                 return SectionType::PhysicalNames;
             }
         default:
-            throw unrecognized_header;
+            throw unrecognized_section_name;
     }
 }
 
 inline SectionType
-get_letter_e_header(ParserState &state)
+get_letter_e_name(ParserState &state)
 {
     state.add_offset(1);
     switch(state.current())
@@ -259,12 +287,13 @@ get_letter_e_header(ParserState &state)
         case 'l':
             if (!state.compare_next("lement", 6))
             {
-                throw unrecognized_header;
+                throw unrecognized_section_name;
             }
             state.add_offset(6);
             switch(state.current())
             {
                 case 's':
+                    state.add_offset(1);
                     return SectionType::Elements;
                 case 'D':
                     if (state.compare_next("Data", 4))
@@ -279,7 +308,7 @@ get_letter_e_header(ParserState &state)
                         return SectionType::ElementNodeData;
                     }
                 default:
-                    throw unrecognized_header;
+                    throw unrecognized_section_name;
             }
         case 'n':
             if (state.compare_next("ntities", 7))
@@ -288,8 +317,44 @@ get_letter_e_header(ParserState &state)
                 return SectionType::Entities;
             }
         default:
-            throw unrecognized_header;
+            throw unrecognized_section_name;
     }
+}
+
+inline SectionType
+parse_section_name(ParserState &state)
+{
+    SectionType type;
+    switch(state.current())
+    {
+        case 'M':
+            type = get_mesh_format_name(state);
+            break;
+        case 'G':
+            type = get_ghost_elements_name(state);
+            break;
+        case 'I':
+            type = get_interpolation_scheme_name(state);
+            break;
+        case 'P':
+            type = get_letter_p_name(state);
+            break;
+        case 'E':
+            type = get_letter_e_name(state);
+            break;
+        case 'N':
+            type = get_letter_n_name(state);
+            break;
+        default:
+            throw unrecognized_section_name;
+    }
+    
+    if (state.current() != '\n')
+    {
+        throw ParsingException("Expected newline at end of section name");
+    }
+    state.add_offset(1);
+    return type;
 }
 
 inline SectionType
@@ -299,26 +364,8 @@ parse_section_header(ParserState &state)
     {
         throw ParsingException("Expected to read a section header");
     }
-
     state.add_offset(1);
-
-    switch(state.current())
-    {
-        case 'M':
-            return get_mesh_format_header(state);
-        case 'G':
-            return get_ghost_elements_header(state);
-        case 'I':
-            return get_interpolation_scheme_header(state);
-        case 'P':
-            return get_letter_p_header(state);
-        case 'E':
-            return get_letter_e_header(state);
-        case 'N':
-            return get_letter_n_header(state);
-        default:
-            throw unrecognized_header;
-    }
+    return parse_section_name(state);
 }
 
 /********************************************************************************
@@ -328,60 +375,61 @@ parse_section_header(ParserState &state)
 
 TEST_CASE("[GMSH] Parse section headers")
 {
-    ParserState state("$Nodes", 6);
+    ParserState state("$Nodes\n", 7);
     REQUIRE(parse_section_header(state) == SectionType::Nodes);
 
-    state = ParserState("$MeshFormat", 11);
+    state = ParserState("$MeshFormat\n", 12);
     REQUIRE(parse_section_header(state) == SectionType::MeshFormat);
 
-    state = ParserState("$PhysicalNames", 14);
+    state = ParserState("$PhysicalNames\n", 15);
     REQUIRE(parse_section_header(state) == SectionType::PhysicalNames);
 
-    state = ParserState("$Entities", 9);
+    state = ParserState("$Entities\n", 10);
     REQUIRE(parse_section_header(state) == SectionType::Entities);
 
-    state = ParserState("$PartitionedEntities", 20);
+    state = ParserState("$PartitionedEntities\n", 21);
     REQUIRE(parse_section_header(state) == SectionType::PartitionedEntities);
 
-    state = ParserState("$Elements", 9);
+    state = ParserState("$Elements\n", 10);
     REQUIRE(parse_section_header(state) == SectionType::Elements);
 
-    state = ParserState("$Periodic", 9);
+    state = ParserState("$Periodic\n", 10);
     REQUIRE(parse_section_header(state) == SectionType::Periodic);
 
-    state = ParserState("$GhostElements", 14);
+    state = ParserState("$GhostElements\n", 15);
     REQUIRE(parse_section_header(state) == SectionType::GhostElements);
 
-    state = ParserState("$Parametrizations", 17);
+    state = ParserState("$Parametrizations\n", 18);
     REQUIRE(parse_section_header(state) == SectionType::Parametrizations);
 
-    state = ParserState("$NodeData", 9);
+    state = ParserState("$NodeData\n", 10);
     REQUIRE(parse_section_header(state) == SectionType::NodeData);
 
-    state = ParserState("$ElementData", 12);
+    state = ParserState("$ElementData\n", 13);
     REQUIRE(parse_section_header(state) == SectionType::ElementData);
 
-    state = ParserState("$ElementNodeData", 16);
+    state = ParserState("$ElementNodeData\n", 17);
     REQUIRE(parse_section_header(state) == SectionType::ElementNodeData);
 
-    state = ParserState("$InterpolationScheme", 20);
+    state = ParserState("$InterpolationScheme\n", 21);
     REQUIRE(parse_section_header(state) == SectionType::InterpolationScheme);
 
     REQUIRE_THROWS(parse_section_header(state));
     state = ParserState("$Elementz", 9);
-    REQUIRE_THROWS_WITH(parse_section_header(state), unrecognized_header.what());
+    REQUIRE_THROWS_WITH(parse_section_header(state), unrecognized_section_name.what());
     state = ParserState("blah", 4);
     REQUIRE_THROWS_WITH(parse_section_header(state),
                         "Expected to read a section header");
+    state = ParserState("$Nodes ", 7);
+    REQUIRE_THROWS_WITH(parse_section_header(state),
+                        "Expected newline at end of section name");
+                       
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
 
-// Doesn't return anything; I'm not planning to figure out exactly which msh
-// versions I support, and the only outcome needed is the setting of data_size
-// in the ParserState.
 inline void
 parse_mesh_format(ParserState &state)
 {
@@ -391,9 +439,13 @@ parse_mesh_format(ParserState &state)
         throw ParsingException("Did not read mesh format as first section in file");
     }
 
-    state.extract_ascii_double();
-    long is_binary = state.extract_ascii_int();
+    double version = state.extract_ascii_double();
+    if (version < 4.1)
+    {
+        throw ParsingException("Parser implemented for msh format 4.1");
+    }
     
+    long is_binary = state.extract_ascii_int();
     if (is_binary == 0)
     {
         throw ParsingException("Only binary mode msh files accepted");
@@ -410,7 +462,6 @@ parse_mesh_format(ParserState &state)
 
     // It looks like gmsh uses a 32-bit int for the endianness check, not
     // what data_size says.
-    state.set_data_size(4);
     size_t endian_check = state.extract_int();
     if (endian_check != 1)
     {
@@ -419,6 +470,9 @@ parse_mesh_format(ParserState &state)
     state.set_data_size(data_size);
 }
 
+/********************************************************************************
+ * Test parsing of mesh format
+ *******************************************************************************/
 #ifdef DOCTEST_LIBRARY_INCLUDED
 
 TEST_CASE("Test parsing the mesh format")
@@ -435,6 +489,201 @@ TEST_CASE("Test parsing the mesh format")
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+inline void
+parse_section_end(ParserState &state, SectionType what_section)
+{
+    if (!state.compare_next("$End", 4))
+    {
+        throw ParsingException("Expected end of section");
+    }
+    state.add_offset(4);
+    
+    SectionType what_was_read = parse_section_name(state);
+    
+    if (what_was_read != what_section)
+    {
+        throw ParsingException("Read section end that doesn't match the current section");
+    }
+}
+
+/********************************************************************************
+ * Test parse of section end.
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parsing end of section")
+{
+    ParserState state("$EndMeshFormat\n", 15);
+    REQUIRE_NOTHROW(parse_section_end(state, SectionType::MeshFormat));
+    state = ParserState("$EndMeshFormat\n", 15);
+    REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::Nodes),
+                        "Read section end that doesn't match the current section");
+    
+    state = ParserState("$EndEntities\n", 13);
+    REQUIRE_NOTHROW(parse_section_end(state, SectionType::Entities));
+    state = ParserState("$EndEntities\n", 13);
+    REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::MeshFormat),
+                        "Read section end that doesn't match the current section");
+    
+    state = ParserState("$EndNodes\n", 10);
+    REQUIRE_NOTHROW(parse_section_end(state, SectionType::Nodes));
+    
+    state = ParserState("EndNodes", 9);
+    REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::Nodes), "Expected end of section");
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+struct PhysicalNames
+{
+    std::vector<size_t> dims;
+    std::vector<std::string> names;
+};
+
+struct PointData
+{
+    std::array<double, 3> coords;
+    std::vector<std::string> physical_tags;
+};
+
+inline PointData
+parse_point_data(ParserState &state, int32_t expected, const PhysicalNames &physical_names)
+{
+    PointData pt;
+    
+    int32_t point_tag = state.extract_int();
+    if (point_tag != expected+1)
+    {
+        throw ParsingException("Got non-sequential point tag");
+    }
+    state.extract_doubles(pt.coords.data(), 3);
+    size_t num_tags = state.extract_size_t();
+    for (size_t i = 0; i < num_tags; ++i)
+    {
+        size_t tag = state.extract_int()-1;
+        if (tag >= physical_names.dims.size())
+        {
+            throw ParsingException("Physical tag out of bounds in parse_point_data");
+        }
+        if (physical_names.dims.at(tag) != 0)
+        {
+            throw ParsingException("Physical tag in parse_point_data does not refer to point");
+        }
+        pt.physical_tags.push_back(physical_names.names.at(tag));
+    }
+    return pt;
+}
+
+inline std::vector<PointData>
+parse_all_points(ParserState &state, size_t num_points,
+                 const PhysicalNames &physical_names)
+{
+    std::vector<PointData> points;
+    for (size_t i = 0; i < num_points; ++i)
+    {
+        points.emplace_back(parse_point_data(state, i, physical_names));
+    }
+    return points;
+}
+
+/********************************************************************************
+ * Test parsing of list of points
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_all_points")
+{
+    PhysicalNames physical_names{
+        std::vector<size_t>{0, 0, 1, 2},
+        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}
+    };
+    
+    static_assert(false, "Finish it!");
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
+/*
+
+inline auto
+parse_entities(ParserState &state, const PhysicalNames &physical_names)
+{
+    size_t num_points = state.extract_int();
+    size_t num_curves = state.extract_int();
+    size_t num_surfaces = state.extract_int();
+    size_t num_volumes = state.extract_int();
+    
+    if (num_volumes != 0)
+    {
+        throw ParsingException("3D meshes not implemented");
+    }
+}
+
+inline void
+parse_gmsh_file(ParserState &state)
+{
+    std::array<bool, 13> section_parsed { false, false, false, false, false,
+                                          false, false, false, false, false,
+                                          false, false, false };
+    parse_mesh_format(state);
+    parse_section_end(state, SectionType::MeshFormat);
+    section_parsed[static_cast<size_t>(SectionType::MeshFormat)] = true;
+    
+    while (state.offset() < state.size())
+    {
+        auto what_section = parse_section_header(state);
+        if (section_parsed[static_cast<size_t>(what_section)])
+        {
+            throw ParsingException("Multiple specification of section");
+        }
+        section_parsed[static_cast<size_t>(what_section)] = true;
+        
+        switch(what_section)
+        {
+            case SectionType::PhysicalNames:
+                auto physical_names = parse_physical_names(state);
+                break;
+            case SectionType::Entities:
+                auto entities = parse_entities(state, physical_names);
+                break;
+            case SectionType::PartitionedEntities:
+                throw ParsingException("Nothing is implemented regarding partitioned entities");
+            case SectionType::Nodes:
+                auto nodes = parse_nodes(state);
+                break;
+            case SectionType::Elements:
+                auto elements = parse_elements(state);
+                break;
+            case SectionType::Periodic:
+                throw ParsingException("Nothing is implemented regarding periodic links");
+            case SectionType::GhostElements:
+                throw ParsingException("Nothing is implemented regarding ghost elements");
+            case SectionType::Parametrizations:
+                throw ParsingException("Nothing is implemented regarding parametrizations");
+            case SectionType::NodeData:
+            case SectionType::ElementData:
+            case SectionType::ElementNodeData:
+                printf("Informational: nothing is currently done with NodeData, "
+                       "ElementData, or ElementNodeData sections\n");
+                skip_section(state, what_section);
+                break;
+            case SectionType::InterpolationScheme:
+                throw ParsingException("Nothing is implemented regarding interpolation schemes");
+            default:
+                throw ParsingException("It should be impossible to hit this exception");
+        }
+        parse_section_end(state, what_section);
+    }
+}
+
+*/
 
 } // namespace gmsh
 
