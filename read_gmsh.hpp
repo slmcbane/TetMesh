@@ -894,6 +894,107 @@ TEST_CASE("Test parse_all_curves")
 /********************************************************************************
  *******************************************************************************/
 
+struct SurfaceData
+{
+    std::array<double, 3> minima;
+    std::array<double, 3> maxima;
+    std::vector<std::string> physical_tags;
+    std::vector<size_t> bounding_curves;
+};
+
+inline SurfaceData
+parse_surface_data(ParserState &state, int32_t expected, size_t num_curves,
+                   const PhysicalNames &physical_names)
+{
+    SurfaceData surf;
+
+    int32_t surf_tag = state.extract_int();
+    if (surf_tag != expected+1)
+    {
+        throw ParsingException("Got non-sequential surface tag");
+    }
+    state.extract_doubles(surf.minima.data(), 3);
+    state.extract_doubles(surf.maxima.data(), 3);
+
+    size_t num_tags = state.extract_size_t();
+    surf.physical_tags.reserve(num_tags);
+    for (size_t i = 0; i < num_tags; ++i)
+    {
+        size_t tag = state.extract_int() - 1;
+        if (tag >= physical_names.dims.size())
+        {
+            throw ParsingException("Physical tag out of bounds in parse_surface_data");
+        }
+        if (physical_names.dims.at(tag) != 2)
+        {
+            throw ParsingException("Physical tag in parse_surface_data does not refer to surface");
+        }
+        surf.physical_tags.push_back(physical_names.names.at(tag));
+    }
+
+    size_t num_bcurves = state.extract_size_t();
+    surf.bounding_curves.reserve(num_bcurves);
+    for (size_t i = 0; i < num_bcurves; ++i)
+    {
+        size_t tag = state.extract_int() - 1;
+        if (tag >= num_curves)
+        {
+            throw ParsingException("Curve tag in parse_surface_data out of bounds");
+        }
+        surf.bounding_curves.push_back(tag);
+    }
+    return surf;
+}
+
+inline std::vector<SurfaceData>
+parse_all_surfaces(ParserState &state, size_t num_surfs, size_t num_points,
+                   const PhysicalNames &physical_names)
+{
+    std::vector<SurfaceData> surfs;
+    for (size_t i = 0; i < num_surfs; ++i)
+    {
+        surfs.emplace_back(parse_surface_data(state, i, num_points, physical_names));
+    }
+    return surfs;
+}
+
+/********************************************************************************
+ * Test parse_all_surfaces
+ *******************************************************************************/
+#ifdef DOCTEST_LIBRARY_INCLUDED
+
+TEST_CASE("Test parse_all_surfaces")
+{
+    PhysicalNames physical_names{
+        std::vector<size_t>{0, 0, 1, 2},
+        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}};
+
+    const char data[] = "\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf\0\0"
+                        "\0\0\0\0\0\0\0\0\0\0\0\0\xf0?\0\0\0\0\0\0\xf0?\0\0\0\0"
+                        "\0\0\0\0\x01\0\0\0\0\0\0\0\x04\0\0\0\x04\0\0\0\0\0\0\0"
+                        "\x01\0\0\0\x02\0\0\0\x03\0\0\0\x04\0\0\0\n$EndEntities\n";
+
+    ParserState state(data, sizeof(data));
+    state.set_data_size(8);
+    const auto surfaces = parse_all_surfaces(state, 1, 4, physical_names);
+
+    REQUIRE(surfaces.size() == 1);
+
+    REQUIRE(surfaces[0].minima == std::array<double, 3>{-1, -1, 0});
+    REQUIRE(surfaces[0].maxima == std::array<double, 3>{1, 1, 0});
+    REQUIRE(surfaces[0].physical_tags.size() == 1);
+    REQUIRE(surfaces[0].physical_tags[0] == "domain");
+    REQUIRE(surfaces[0].bounding_curves.size() == 4);
+    REQUIRE(surfaces[0].bounding_curves[0] == 0);
+    REQUIRE(surfaces[0].bounding_curves[1] == 1);
+    REQUIRE(surfaces[0].bounding_curves[2] == 2);
+    REQUIRE(surfaces[0].bounding_curves[3] == 3);
+} // TEST_CASE
+
+#endif // DOCTEST_LIBRARY_INCLUDED
+/********************************************************************************
+ *******************************************************************************/
+
 /*
 inline auto
 parse_entities(ParserState &state, const PhysicalNames &physical_names)
