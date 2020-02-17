@@ -23,6 +23,23 @@
 #ifndef READ_GMSH_HPP
 #define READ_GMSH_HPP
 
+/*
+ * This file implements a parser for a subset of the gmsh .msh binary file
+ * format. It is capable of reading a file containing a 2D mesh that:
+ *   1) Has an 'Entities' section defining all curves and surfaces
+ *   2) Consists only of points, 2-node line, and 3-node triangle elements.
+ *   3) Does not have parametric or periodic entities.
+ *
+ * The parser will throw a `ParsingException` with informative error message
+ * for parse errors. The entry points are:
+ *   1) parse_gmsh_data(ParserState &state) to parse in-memory data.
+ *   2) parse_gmsh_file(const char *name) to parse a file with path given in
+ *      the string argument. This currently reads the entire file into a buffer
+ *      in memory before parsing, but could easily be modified to use an mmap.
+ * 
+ * See the method docs on these entry points for further info.
+ */
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -42,24 +59,167 @@ namespace msh
 namespace gmsh
 {
 
+enum class SectionType : unsigned char
+{
+    MeshFormat,
+    PhysicalNames,
+    Entities,
+    PartitionedEntities,
+    Nodes,
+    Elements,
+    Periodic,
+    GhostElements,
+    Parametrizations,
+    NodeData,
+    ElementData,
+    ElementNodeData,
+    InterpolationScheme
+};
+
+struct PhysicalNames
+{
+    std::vector<size_t> dims;
+    std::vector<std::string> names;
+};
+
+struct PointData
+{
+    std::array<double, 3> coords;
+    std::vector<std::string> physical_tags;
+};
+
+struct CurveData
+{
+    std::array<double, 3> minima;
+    std::array<double, 3> maxima;
+    std::vector<std::string> physical_tags;
+    std::vector<size_t> bounding_points;
+};
+
+struct SurfaceData
+{
+    std::array<double, 3> minima;
+    std::array<double, 3> maxima;
+    std::vector<std::string> physical_tags;
+    std::vector<size_t> bounding_curves;
+};
+
+struct Entities
+{
+    std::vector<PointData> points;
+    std::vector<CurveData> curves;
+    std::vector<SurfaceData> surfs;
+};
+
+enum class EntityType : unsigned char
+{
+    Point,
+    Curve,
+    Surface
+};
+
+struct NodeData
+{
+    size_t entity_tag;
+    std::array<double, 3> coords;
+    EntityType entity_type;
+};
+
+enum class ElementType
+{
+    Point,
+    Line,
+    Triangle
+};
+
+struct ElementData
+{
+    size_t entity_tag;
+    smv::SmallVector<size_t, 3, false> node_tags;
+    ElementType type;
+    EntityType entity_type;
+};
+
+struct MeshData
+{
+    PhysicalNames physical_names;
+    Entities entities;
+    std::vector<NodeData> nodes;
+    std::vector<ElementData> elements;
+};
+
+// Encapsulates basic memory options on raw data.
+class ParserState;
+
+/*
+ * Parse a gmsh mesh from binary data already loaded.
+ * A ParserState object is constructed from a pointer to a memory buffer and
+ * a length of the buffer.
+ * 
+ * The returned `MeshData` object contains all of the raw info contained in
+ * the mesh, subject to the restrictions described above. I think the names
+ * of the fields in each struct are self-documenting.
+ */
+inline MeshData
+parse_gmsh_data(ParserState &state);
+
 struct ParsingException : public std::exception
 {
     const char *msg;
     const char *what() const noexcept { return msg; }
 
-    ParsingException(const char* m) noexcept : msg{m}
-    {}
+    ParsingException(const char *m) noexcept : msg{m}
+    {
+    }
 };
+
+/*
+ * Parse a gmsh mesh from a binary .msh file.
+ * This opens the file and reads the entire contents into a memory buffer,
+ * before calling parse_gmsh_data on a ParserState constructed from the
+ * buffer.
+ */
+inline MeshData
+parse_gmsh_file(const char *name)
+{
+    std::FILE *infile = std::fopen(name, "rb");
+    if (infile == nullptr)
+    {
+        throw ParsingException("Failed to open file given");
+    }
+
+    int err = std::fseek(infile, 0, SEEK_END);
+    if (err != 0)
+    {
+        fclose(infile);
+        throw ParsingException("Seek to end of file failed in parse_gmsh_file");
+    }
+    long file_size = std::ftell(infile);
+    if (!(file_size >= 0))
+    {
+        fclose(infile);
+        throw ParsingException("Error from std::ftell in parse_gmsh_file");
+    }
+    std::rewind(infile);
+    
+    std::vector<char> buffer(static_cast<size_t>(file_size));
+    auto num_read = std::fread(buffer.data(), 1, file_size, infile);
+
+    if (num_read != file_size)
+    {
+        fclose(infile);
+        throw ParsingException("Failed to read entire mesh file");
+    }
+
+    fclose(infile);
+
+    ParserState state(buffer.data(), buffer.size());
+    return parse_gmsh_data(state);
+}
 
 static const ParsingException unrecognized_section_name("Unrecognized section name");
 static const ParsingException past_the_end("Requested access to data past the end of what was read");
 
-enum class SectionType
-{
-    MeshFormat, PhysicalNames, Entities, PartitionedEntities,
-    Nodes, Elements, Periodic, GhostElements, Parametrizations,
-    NodeData, ElementData, ElementNodeData, InterpolationScheme
-};
 
 class ParserState
 {
@@ -622,12 +782,6 @@ TEST_CASE("Test parse_ascii_string")
 /********************************************************************************
  *******************************************************************************/
 
-struct PhysicalNames
-{
-    std::vector<size_t> dims;
-    std::vector<std::string> names;
-};
-
 inline PhysicalNames
 parse_physical_names(ParserState &state)
 {
@@ -692,12 +846,6 @@ TEST_CASE("Test parse_physical_names")
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
-
-struct PointData
-{
-    std::array<double, 3> coords;
-    std::vector<std::string> physical_tags;
-};
 
 inline PointData
 parse_point_data(ParserState &state, int32_t expected, const PhysicalNames &physical_names)
@@ -793,14 +941,6 @@ TEST_CASE("Test parse_all_points")
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
-
-struct CurveData
-{
-    std::array<double, 3> minima;
-    std::array<double, 3> maxima;
-    std::vector<std::string> physical_tags;
-    std::vector<size_t> bounding_points;
-};
 
 inline CurveData
 parse_curve_data(ParserState &state, int32_t expected, size_t num_points,
@@ -926,14 +1066,6 @@ TEST_CASE("Test parse_all_curves")
 /********************************************************************************
  *******************************************************************************/
 
-struct SurfaceData
-{
-    std::array<double, 3> minima;
-    std::array<double, 3> maxima;
-    std::vector<std::string> physical_tags;
-    std::vector<size_t> bounding_curves;
-};
-
 inline SurfaceData
 parse_surface_data(ParserState &state, int32_t expected, size_t num_curves,
                    const PhysicalNames &physical_names)
@@ -1026,13 +1158,6 @@ TEST_CASE("Test parse_all_surfaces")
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
-
-struct Entities
-{
-    std::vector<PointData> points;
-    std::vector<CurveData> curves;
-    std::vector<SurfaceData> surfs;
-};
 
 inline Entities
 parse_entities(ParserState &state, const PhysicalNames &physical_names)
@@ -1181,18 +1306,6 @@ TEST_CASE("Test parse_entities")
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
-
-enum class EntityType : char
-{
-    Point, Curve, Surface
-};
-
-struct NodeData
-{
-    size_t entity_tag;
-    std::array<double, 3> coords;
-    EntityType entity_type;
-};
 
 inline std::pair<EntityType, size_t>
 parse_entity_type_and_tag(ParserState &state, const Entities &entities)
@@ -1483,19 +1596,6 @@ TEST_CASE("Test parse_nodes")
 /********************************************************************************
  *******************************************************************************/
 
-enum class ElementType
-{
-    Point, Line, Triangle
-};
-
-struct ElementData
-{
-    size_t entity_tag;
-    smv::SmallVector<size_t, 3, false> node_tags;
-    ElementType type;
-    EntityType entity_type;
-};
-
 inline void
 parse_point_elements(std::vector<ElementData> &elements, ParserState &state,
                      std::vector<bool> &initialized, const Entities &entities,
@@ -1736,14 +1836,6 @@ skip_section(ParserState &state, SectionType what_section)
     }
     state.add_offset(offset_to_add);
 }
-
-struct MeshData
-{
-    PhysicalNames physical_names;
-    Entities entities;
-    std::vector<NodeData> nodes;
-    std::vector<ElementData> elements;
-};
 
 inline MeshData
 parse_gmsh_file(ParserState &state)
