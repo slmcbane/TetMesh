@@ -180,46 +180,10 @@ struct ParsingException : public std::exception
  * buffer.
  */
 inline MeshData
-parse_gmsh_file(const char *name)
-{
-    std::FILE *infile = std::fopen(name, "rb");
-    if (infile == nullptr)
-    {
-        throw ParsingException("Failed to open file given");
-    }
-
-    int err = std::fseek(infile, 0, SEEK_END);
-    if (err != 0)
-    {
-        fclose(infile);
-        throw ParsingException("Seek to end of file failed in parse_gmsh_file");
-    }
-    long file_size = std::ftell(infile);
-    if (!(file_size >= 0))
-    {
-        fclose(infile);
-        throw ParsingException("Error from std::ftell in parse_gmsh_file");
-    }
-    std::rewind(infile);
-    
-    std::vector<char> buffer(static_cast<size_t>(file_size));
-    auto num_read = std::fread(buffer.data(), 1, file_size, infile);
-
-    if (num_read != file_size)
-    {
-        fclose(infile);
-        throw ParsingException("Failed to read entire mesh file");
-    }
-
-    fclose(infile);
-
-    ParserState state(buffer.data(), buffer.size());
-    return parse_gmsh_data(state);
-}
+parse_gmsh_file(const char *name);
 
 static const ParsingException unrecognized_section_name("Unrecognized section name");
 static const ParsingException past_the_end("Requested access to data past the end of what was read");
-
 
 class ParserState
 {
@@ -381,6 +345,44 @@ public:
         return where - data();
     }
 };
+
+inline MeshData
+parse_gmsh_file(const char *name)
+{
+    std::FILE *infile = std::fopen(name, "rb");
+    if (infile == nullptr)
+    {
+        throw ParsingException("Failed to open file given");
+    }
+
+    int err = std::fseek(infile, 0, SEEK_END);
+    if (err != 0)
+    {
+        fclose(infile);
+        throw ParsingException("Seek to end of file failed in parse_gmsh_file");
+    }
+    long file_size = std::ftell(infile);
+    if (!(file_size >= 0))
+    {
+        fclose(infile);
+        throw ParsingException("Error from std::ftell in parse_gmsh_file");
+    }
+    std::rewind(infile);
+
+    std::vector<char> buffer(static_cast<size_t>(file_size));
+    auto num_read = std::fread(buffer.data(), 1, file_size, infile);
+
+    if (num_read != file_size)
+    {
+        fclose(infile);
+        throw ParsingException("Failed to read entire mesh file");
+    }
+
+    fclose(infile);
+
+    ParserState state(buffer.data(), buffer.size());
+    return parse_gmsh_data(state);
+}
 
 inline SectionType
 get_mesh_format_name(ParserState &state)
