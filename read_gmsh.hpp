@@ -23,6 +23,7 @@
 #ifndef READ_GMSH_HPP
 #define READ_GMSH_HPP
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -1593,14 +1594,10 @@ parse_line_elements(std::vector<ElementData> &elements, ParserState &state,
             {
                 throw ParsingException("Out of bounds node tag in parse_line_elements");
             }
-            else if (nodes[node_tag].entity_type != EntityType::Curve)
+            else if (nodes[node_tag].entity_type != EntityType::Curve &&
+                     nodes[node_tag].entity_type != EntityType::Point)
             {
-                throw ParsingException("Referenced node does not belong to a curve entity");
-            }
-            else if (nodes[node_tag].entity_tag != tag)
-            {
-                throw ParsingException("Referenced node's entity tag does not match in "
-                                       "parse_line_elements");
+                throw ParsingException("Referenced node does not belong to a point or curve entity");
             }
         }
     }
@@ -1651,6 +1648,13 @@ parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
             {
                 throw ParsingException("Out of bounds node tag in parse_line_elements");
             }
+            /*
+             * The below was originally here but is wrong.
+             * A point belonging to a point entity or a curve entity can be one of the vertices
+             * of a triangle element.
+             */
+
+            /*
             else if (nodes[node_tag].entity_type != EntityType::Surface)
             {
                 throw ParsingException("Referenced node does not belong to a curve entity");
@@ -1660,6 +1664,7 @@ parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
                 throw ParsingException("Referenced node's entity tag does not match in "
                                        "parse_line_elements");
             }
+            */
         }
     }
 }
@@ -1725,7 +1730,7 @@ skip_section(ParserState &state, SectionType what_section)
         default:
             throw ParsingException("what_section wasn't NodeData, ElementData, ElementNodeData");
     }
-    if (offset_to_add == static_cast<size_t>(-1));
+    if (offset_to_add == static_cast<size_t>(-1))
     {
         throw ParsingException("Missing matching section end in skip_section");
     }
