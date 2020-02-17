@@ -29,8 +29,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <tuple>
 #include <utility>
 #include <vector>
+
+#include "SmallVector.hpp"
 
 namespace msh
 {
@@ -202,6 +205,19 @@ public:
         {
             add_offset(1);
         }
+    }
+
+    // Find byte pattern starting from current offset.
+    // Return the distance from current offset to the beginning of the pattern.
+    // If not found, return size_t(-1);
+    size_t find_bytes(const char *pattern, size_t len) const noexcept
+    {
+        auto where = std::search(data(), m_data + m_size, pattern, pattern + len);
+        if (where == m_data + m_size)
+        {
+            return static_cast<size_t>(-1);
+        }
+        return where - data();
     }
 };
 
@@ -1466,8 +1482,265 @@ TEST_CASE("Test parse_nodes")
 /********************************************************************************
  *******************************************************************************/
 
-/*
+enum class ElementType
+{
+    Point, Line, Triangle
+};
+
+struct ElementData
+{
+    size_t entity_tag;
+    smv::SmallVector<size_t, 3, false> node_tags;
+    ElementType type;
+    EntityType entity_type;
+};
+
 inline void
+parse_point_elements(std::vector<ElementData> &elements, ParserState &state,
+                     std::vector<bool> &initialized, const Entities &entities,
+                     const std::vector<NodeData> &nodes)
+{
+    size_t tag = state.extract_int() - 1;
+    if (tag >= entities.points.size())
+    {
+        throw ParsingException("Point tag out of bounds in parse_point_element");
+    }
+    int32_t element_type = state.extract_int();
+    if (element_type != 15)
+    {
+        throw ParsingException("Expected 1-node point (tag = 15)");
+    }
+
+    size_t num_elements = state.extract_size_t();
+    for (size_t i = 0; i < num_elements; ++i)
+    {
+        size_t element_tag = state.extract_size_t() - 1;
+        if (element_tag >= elements.size())
+        {
+            throw ParsingException("Out of bounds element tag in parse_point_element");
+        }
+        else if (initialized[element_tag])
+        {
+            throw ParsingException("Multiple specification of element in parse_point_element");
+        }
+        initialized[element_tag] = true;
+
+        auto &element = elements[element_tag];
+        element.type = ElementType::Point;
+        element.entity_type = EntityType::Point;
+        element.entity_tag = tag;
+
+        size_t node_tag = state.extract_size_t() - 1;
+        if (node_tag >= nodes.size())
+        {
+            throw ParsingException("Out of bounds node tag in parse_point_element");
+        }
+        else if (nodes[node_tag].entity_type != EntityType::Point)
+        {
+            throw ParsingException("Referenced node does not belong to a point entity");
+        }
+        else if (nodes[node_tag].entity_tag != tag)
+        {
+            throw ParsingException("Referenced node's entity tag does not match "
+                                   "in parse_point_element");
+        }
+        element.node_tags.push_back(node_tag);
+    }
+}
+
+inline void
+parse_line_elements(std::vector<ElementData> &elements, ParserState &state,
+                    std::vector<bool> &initialized, const Entities &entities,
+                    const std::vector<NodeData> &nodes)
+{
+    size_t tag = state.extract_int() - 1;
+    if (tag >= entities.curves.size())
+    {
+        throw ParsingException("Curve tag out of bounds in parse_line_elements");
+    }
+    int32_t element_type = state.extract_int();
+    if (element_type != 1)
+    {
+        throw ParsingException("Expected 2-node line (tag = 1)");
+    }
+
+    size_t num_elements = state.extract_size_t();
+    for (size_t i = 0; i < num_elements; ++i)
+    {
+        size_t element_tag = state.extract_size_t() - 1;
+        if (element_tag >= elements.size())
+        {
+            throw ParsingException("Out of bounds element tag in parse_line_elements");
+        }
+        else if (initialized[element_tag])
+        {
+            throw ParsingException("Multiple specification of element in parse_line_elements");
+        }
+        initialized[element_tag] = true;
+
+        auto &element = elements[element_tag];
+        element.type = ElementType::Line;
+        element.entity_type = EntityType::Curve;
+        element.entity_tag = tag;
+
+        element.node_tags.resize(2);
+        state.extract_size_t(element.node_tags.data(), 2);
+
+        for (auto &node_tag: element.node_tags)
+        {
+            node_tag -= 1;
+            if (node_tag >= nodes.size())
+            {
+                throw ParsingException("Out of bounds node tag in parse_line_elements");
+            }
+            else if (nodes[node_tag].entity_type != EntityType::Curve)
+            {
+                throw ParsingException("Referenced node does not belong to a curve entity");
+            }
+            else if (nodes[node_tag].entity_tag != tag)
+            {
+                throw ParsingException("Referenced node's entity tag does not match in "
+                                       "parse_line_elements");
+            }
+        }
+    }
+}
+
+inline void
+parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
+                        std::vector<bool> &initialized, const Entities &entities,
+                        const std::vector<NodeData> &nodes)
+{
+    size_t tag = state.extract_int() - 1;
+    if (tag >= entities.surfs.size())
+    {
+        throw ParsingException("Surface tag out of bounds in parse_triangle_elements");
+    }
+    int32_t element_type = state.extract_int();
+    if (element_type != 2)
+    {
+        throw ParsingException("Expected 3-node triangle (tag = 2)");
+    }
+
+    size_t num_elements = state.extract_size_t();
+    for (size_t i = 0; i < num_elements; ++i)
+    {
+        size_t element_tag = state.extract_size_t() - 1;
+        if (element_tag >= elements.size())
+        {
+            throw ParsingException("Out of bounds element tag in parse_triangle_elements");
+        }
+        else if (initialized[element_tag])
+        {
+            throw ParsingException("Multiple specification of element in parse_line_elements");
+        }
+        initialized[element_tag] = true;
+
+        auto &element = elements[element_tag];
+        element.type = ElementType::Triangle;
+        element.entity_type = EntityType::Surface;
+        element.entity_tag = tag;
+
+        element.node_tags.resize(3);
+        state.extract_size_t(element.node_tags.data(), 3);
+
+        for (auto &node_tag: element.node_tags)
+        {
+            node_tag -= 1;
+            if (node_tag >= nodes.size())
+            {
+                throw ParsingException("Out of bounds node tag in parse_line_elements");
+            }
+            else if (nodes[node_tag].entity_type != EntityType::Surface)
+            {
+                throw ParsingException("Referenced node does not belong to a curve entity");
+            }
+            else if (nodes[node_tag].entity_tag != tag)
+            {
+                throw ParsingException("Referenced node's entity tag does not match in "
+                                       "parse_line_elements");
+            }
+        }
+    }
+}
+
+inline std::vector<ElementData>
+parse_elements(ParserState &state, const Entities &entities,
+               const std::vector<NodeData> &nodes)
+{
+    size_t num_entity_blocks = state.extract_size_t();
+    size_t num_elements = state.extract_size_t();
+    size_t min_element_tag = state.extract_size_t();
+    size_t max_element_tag = state.extract_size_t();
+
+    if (!(min_element_tag == 1 && max_element_tag == num_elements))
+    {
+        throw ParsingException("Parser only implements support for sequential "
+                               "element tags starting from 1");
+    }
+
+    std::vector<ElementData> elements(num_elements);
+    std::vector<bool> initialized(num_elements, false);
+    for (size_t e = 0; e < num_entity_blocks; ++e)
+    {
+        int32_t dim = state.extract_int();
+        switch(dim)
+        {
+            case 0:
+                parse_point_elements(elements, state, initialized, entities, nodes);
+                continue;
+            case 1:
+                parse_line_elements(elements, state, initialized, entities, nodes);
+                continue;
+            case 2:
+                parse_triangle_elements(elements, state, initialized, entities, nodes);
+                continue;
+            default:
+                throw ParsingException("Bad dimension for entity in parse_elements");
+        }
+    }
+    return elements;
+}
+
+inline void
+skip_section(ParserState &state, SectionType what_section)
+{
+    constexpr const char node_data_str[] = "$EndNodeData\n";
+    constexpr const char element_data_str[] = "$EndElementData\n";
+    constexpr const char element_node_data_str[] = "$EndElementNodeData\n";
+
+    size_t offset_to_add;
+    switch(what_section)
+    {
+        case SectionType::NodeData:
+            offset_to_add = state.find_bytes(node_data_str, sizeof(node_data_str)-1);
+            break;
+        case SectionType::ElementData:
+            offset_to_add = state.find_bytes(element_data_str, sizeof(element_data_str) - 1);
+            break;
+        case SectionType::ElementNodeData:
+            offset_to_add = state.find_bytes(element_node_data_str,
+                sizeof(element_node_data_str) - 1);
+            break;
+        default:
+            throw ParsingException("what_section wasn't NodeData, ElementData, ElementNodeData");
+    }
+    if (offset_to_add == static_cast<size_t>(-1));
+    {
+        throw ParsingException("Missing matching section end in skip_section");
+    }
+    state.add_offset(offset_to_add);
+}
+
+struct MeshData
+{
+    PhysicalNames physical_names;
+    Entities entities;
+    std::vector<NodeData> nodes;
+    std::vector<ElementData> elements;
+};
+
+inline MeshData
 parse_gmsh_file(ParserState &state)
 {
     std::array<bool, 13> section_parsed { false, false, false, false, false,
@@ -1476,7 +1749,9 @@ parse_gmsh_file(ParserState &state)
     parse_mesh_format(state);
     parse_section_end(state, SectionType::MeshFormat);
     section_parsed[static_cast<size_t>(SectionType::MeshFormat)] = true;
-    
+
+    MeshData mesh_data;
+
     while (state.offset() < state.size())
     {
         auto what_section = parse_section_header(state);
@@ -1485,25 +1760,30 @@ parse_gmsh_file(ParserState &state)
             throw ParsingException("Multiple specification of section");
         }
         section_parsed[static_cast<size_t>(what_section)] = true;
-        
-        PhysicalNames physical_names;
-        Entities entities;
 
         switch(what_section)
         {
             case SectionType::PhysicalNames:
-                physical_names = parse_physical_names(state);
+                mesh_data.physical_names = parse_physical_names(state);
                 break;
             case SectionType::Entities:
-                entities = parse_entities(state, physical_names);
+                mesh_data.entities = parse_entities(state, mesh_data.physical_names);
                 break;
             case SectionType::PartitionedEntities:
                 throw ParsingException("Nothing is implemented regarding partitioned entities");
             case SectionType::Nodes:
-                auto nodes = parse_nodes(state);
+                if (!section_parsed[static_cast<size_t>(SectionType::Entities)])
+                {
+                    throw ParsingException("Must specify entities before nodes");
+                }
+                mesh_data.nodes = parse_nodes(state, mesh_data.entities);
                 break;
             case SectionType::Elements:
-                auto elements = parse_elements(state);
+                if (!section_parsed[static_cast<size_t>(SectionType::Nodes)])
+                {
+                    throw ParsingException("Must specify nodes before elements");
+                }
+                mesh_data.elements = parse_elements(state, mesh_data.entities, mesh_data.nodes);
                 break;
             case SectionType::Periodic:
                 throw ParsingException("Nothing is implemented regarding periodic links");
@@ -1525,9 +1805,9 @@ parse_gmsh_file(ParserState &state)
         }
         parse_section_end(state, what_section);
     }
-}
 
-*/
+    return mesh_data;
+}
 
 } // namespace gmsh
 
