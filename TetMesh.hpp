@@ -264,7 +264,8 @@ public:
      */
     template <class NodeContainer, class ElContainer, class CurveContainer>
     TetMesh(const NodeContainer &nodes, const ElContainer &tets,
-            const CurveContainer &bounding_curves) : m_boundaries()
+            const CurveContainer &bounding_curves) : m_boundaries(),
+            m_boundary_tags(bounding_curves.size())
     {
         m_nodes.reserve(nodes.size());
         m_elems.reserve(tets.size());
@@ -318,6 +319,19 @@ public:
 
         remove_orphaned_nodes();
     } // constructor
+    
+    template <class NodeContainer, class ElContainer, class CurveContainer,
+              class TagContainer>
+    TetMesh(const NodeContainer &nodes, const ElContainer &tets,
+            const CurveContainer &bounding_curves, const TagContainer &tags) :
+            TetMesh(nodes, tets, bounding_curves)
+    {
+        for (const auto &tag: tags)
+        {
+            size_t index = get<0>(tag);
+            m_boundary_tags.at(index).push_back(get<1>(tag));
+        }
+    }
 
     const el_type &element(size_t i) const
     {
@@ -344,6 +358,11 @@ public:
     const BoundaryRepresentation<NodesPerFace> &boundary(size_t i) const
     {
         return m_boundaries.at(i);
+    }
+    
+    const std::vector<std::string> &boundary_tags(size_t i) const
+    {
+        return m_boundary_tags.at(i);
     }
 
     size_t num_elements() const noexcept { return m_elems.size(); }
@@ -552,6 +571,7 @@ private:
     std::vector<node_type> m_nodes;
     std::vector<el_type> m_elems;
     std::vector<BoundaryRepresentation<NodesPerFace>> m_boundaries;
+    std::vector<std::vector<std::string>> m_boundary_tags;
 
     node_type &node(size_t i)
     {
@@ -1517,7 +1537,7 @@ TEST_CASE("Test constructing a third order mesh with orphaned nodes")
     
     const auto mesh = TetMesh<double, 2, 15, 2, 1>(nodes, tets, boundaries);
     
-    REQUIRE(mesh.num_nodes() == 4);
+    REQUIRE(mesh.num_nodes() == 16);
     REQUIRE(mesh.coord(0) == nodes[0]);
     REQUIRE(mesh.coord(1) == nodes[2]);
     REQUIRE(mesh.coord(2) == nodes[3]);
@@ -1666,12 +1686,14 @@ TEST_CASE("A larger third order mesh boundary test")
 
 struct MeshConversionException : public std::exception
 {
+    const char *msg;
+    
     const char* what() const noexcept
     { 
-        return "Failed conversion from gmsh to tetmesh";
+        return msg;
     }
 
-    MeshConversionException() noexcept = default;
+    MeshConversionException(const char *m) noexcept : msg(m) {}
 };
 
 template <size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
@@ -1686,7 +1708,7 @@ parse_gmsh_to_tetmesh(const char *name)
     auto num_surfaces = mesh_data.entities.surfs.size();
     if (num_surfaces != 1)
     {
-        throw MeshConversionException();
+        throw MeshConversionException("More than one surface in mesh");
     }
 
     std::vector<std::array<double, 2>> nodes;
@@ -1709,6 +1731,7 @@ parse_gmsh_to_tetmesh(const char *name)
     }
 
     std::vector<std::vector<size_t>> boundaries;
+    std::vector<std::tuple<size_t, std::string>> boundary_tags;
     // I assume all curves are boundaries of the domain.
     // This limitation should be removed eventually.
     for (size_t i = 0; i < mesh_data.entities.curves.size(); ++i)
@@ -1725,7 +1748,7 @@ parse_gmsh_to_tetmesh(const char *name)
             });
         if (it == mesh_data.elements.end())
         {
-            throw MeshConversionException();
+            throw MeshConversionException("Failed to find line element on given curve");
         }
         boundary.push_back(it->node_tags[0]);
         boundary.push_back(it->node_tags[1]);
@@ -1737,16 +1760,21 @@ parse_gmsh_to_tetmesh(const char *name)
         {
             if (it->node_tags[0] != boundary.back())
             {
-                throw MeshConversionException();
+                throw MeshConversionException("Discontinuous boundary");
             }
             boundary.push_back(it->node_tags[1]);
             it += 1;
+        }
+        
+        for (const std::string &str: mesh_data.entities.curves[i].physical_tags)
+        {
+            boundary_tags.push_back(std::make_tuple(i, str));
         }
     }
 
     return TetMesh<double, MaxElementAdjacencies, MaxNodeAdjacencies,
                    NodesPerFace, InternalNodes>(
-        nodes, tets, boundaries
+        nodes, tets, boundaries, boundary_tags
     );
 }
 
