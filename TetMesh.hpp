@@ -670,7 +670,7 @@ private:
         // offsets of nodes that are after it.
         auto new_node_end = std::remove_if(
             m_nodes.begin(), m_nodes.end(),
-            [&](const auto &node)
+            [&](const node_type &node)
             {
                 if (node.adjacent_nodes.empty())
                 {
@@ -1683,7 +1683,8 @@ parse_gmsh_to_tetmesh(const char *name)
     // This limitation should be removed eventually.
     for (size_t i = 0; i < mesh_data.entities.curves.size(); ++i)
     {
-        auto &boundary = boundaries.emplace_back();
+        boundaries.emplace_back();
+        auto &boundary = boundaries.back();
         // Get iterator to first line element on this curve.
         auto it = std::find_if(mesh_data.elements.begin(),
             mesh_data.elements.end(),
