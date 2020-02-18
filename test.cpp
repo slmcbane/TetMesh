@@ -87,45 +87,9 @@ std::ostream &operator<<(std::ostream &stream,
     return stream;
 }
 
-const std::array<std::array<double, 2>, 12> nodes = {
-    -1, 1,
-    -1, -1,
-    1, -1,
-    1, 1,
-    0, 1,
-    1, 0,
-    0, -1,
-    -1, 0,
-    -0.5, -0.5,
-    0.25, -0.25,
-    -0.25, 0.25,
-    0.5, 0.5
-};
-
-const std::array<std::array<size_t, 3>, 14> tets = {
-    0, 4, 10,
-    5, 2, 9,
-    9, 2, 6,
-    0, 10, 7,
-    4, 3, 11,
-    3, 5, 11,
-    1, 8, 6,
-    7, 8, 1,
-    4, 11, 10,
-    8, 9, 6,
-    10, 9, 8,
-    11, 5, 9,
-    10, 11, 9,
-    7, 10, 8
-};
-
-const std::array<std::array<size_t, 5>, 1> boundaries = {
-    0, 4, 3, 5, 2
-};
-
 int main()
 {
-    msh::TetMesh<double, 11, 36> mesh(nodes, tets, boundaries);
+    auto mesh = msh::parse_gmsh_to_tetmesh<15, 128, 2, 1>("/home/sean/Desktop/joint_bin.msh");
     std::cout << mesh;
     std::cout << "Average bandwidth:  " << mesh.average_bandwidth() << "\n";
 

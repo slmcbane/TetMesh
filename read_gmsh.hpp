@@ -370,7 +370,7 @@ parse_gmsh_file(const char *name)
     std::rewind(infile);
 
     std::vector<char> buffer(static_cast<size_t>(file_size));
-    auto num_read = std::fread(buffer.data(), 1, file_size, infile);
+    long num_read = std::fread(buffer.data(), 1, file_size, infile);
 
     if (num_read != file_size)
     {
@@ -1840,7 +1840,7 @@ skip_section(ParserState &state, SectionType what_section)
 }
 
 inline MeshData
-parse_gmsh_file(ParserState &state)
+parse_gmsh_data(ParserState &state)
 {
     std::array<bool, 13> section_parsed { false, false, false, false, false,
                                           false, false, false, false, false,

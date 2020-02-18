@@ -39,6 +39,7 @@ using std::size_t;
 using std::get;
 
 #include "SmallVector.hpp"
+#include "read_gmsh.hpp"
 
 namespace msh
 {
@@ -314,6 +315,8 @@ public:
             m_boundaries.push_back(
                 build_boundary_representation(curve.begin(), curve.end(), node_faces));
         }
+
+        remove_orphaned_nodes();
     } // constructor
 
     const el_type &element(size_t i) const
@@ -656,6 +659,68 @@ private:
         {
             fprintf(stderr, "Exceeded MaxElementAdjacencies at element %ld\n", m);
             throw smv::MaxSizeExceeded{};
+        }
+    }
+
+    void remove_orphaned_nodes()
+    {
+        std::vector<size_t> new_index_offsets(num_nodes(), 0);
+
+        // Sort the nodes to be removed to the end while also updating the
+        // offsets of nodes that are after it.
+        auto new_node_end = std::remove_if(
+            m_nodes.begin(), m_nodes.end(),
+            [&](const auto &node)
+            {
+                if (node.adjacent_nodes.empty())
+                {
+                    size_t i = &node - m_nodes.data();
+                    std::transform(new_index_offsets.begin()+i,
+                                   new_index_offsets.end(),
+                                   new_index_offsets.begin()+i,
+                                   [](size_t x) { return x - 1; });
+                }
+                return node.adjacent_nodes.empty();
+            }
+        );
+
+        m_nodes.erase(new_node_end, m_nodes.end());
+
+        // Update references to nodes.
+        auto update_node = [&](size_t &n) { n += new_index_offsets.at(n); };
+        for (auto &el: m_elems)
+        {
+            for (size_t &n: el.control_nodes)
+            {
+                update_node(n);
+            }
+            for (auto &face: el.face_nodes)
+            {
+                for (size_t &n: face)
+                {
+                    update_node(n);
+                }
+            }
+            for (size_t &n: el.internal_nodes)
+            {
+                update_node(n);
+            }
+        }
+
+        for (auto &node: m_nodes)
+        {
+            for (size_t &n: node.adjacent_nodes)
+            {
+                update_node(n);
+            }
+        }
+
+        for (auto &boundary: m_boundaries)
+        {
+            for (size_t &n: boundary.nodes)
+            {
+                update_node(n);
+            }
         }
     }
 
@@ -1568,6 +1633,91 @@ TEST_CASE("A larger third order mesh boundary test")
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
+
+struct MeshConversionException : public std::exception
+{
+    const char* what() const noexcept
+    { 
+        return "Failed conversion from gmsh to tetmesh";
+    }
+
+    MeshConversionException() noexcept = default;
+};
+
+template <size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
+          size_t NodesPerFace = 0, size_t InternalNodes = 0>
+TetMesh<double, MaxElementAdjacencies, MaxNodeAdjacencies,
+        NodesPerFace, InternalNodes>
+parse_gmsh_to_tetmesh(const char *name)
+{
+    const auto mesh_data = gmsh::parse_gmsh_file(name);
+
+    // For now I assume that only one surface is defined; check that.
+    auto num_surfaces = mesh_data.entities.surfs.size();
+    if (num_surfaces != 1)
+    {
+        throw MeshConversionException();
+    }
+
+    std::vector<std::array<double, 2>> nodes;
+    nodes.reserve(mesh_data.nodes.size());
+
+    for (const auto &node: mesh_data.nodes)
+    {
+        nodes.emplace_back(std::array<double, 2>{ node.coords[0], node.coords[1] });
+    }
+
+    std::vector<std::array<size_t, 3>> tets;
+    for (const auto &element: mesh_data.elements)
+    {
+        if (element.entity_type == gmsh::EntityType::Surface)
+        {
+            tets.emplace_back(std::array<size_t, 3>{element.node_tags[0],
+                                                    element.node_tags[1],
+                                                    element.node_tags[2]});
+        }
+    }
+
+    std::vector<std::vector<size_t>> boundaries;
+    // I assume all curves are boundaries of the domain.
+    // This limitation should be removed eventually.
+    for (size_t i = 0; i < mesh_data.entities.curves.size(); ++i)
+    {
+        auto &boundary = boundaries.emplace_back();
+        // Get iterator to first line element on this curve.
+        auto it = std::find_if(mesh_data.elements.begin(),
+            mesh_data.elements.end(),
+            [=](const gmsh::ElementData &el)
+            {
+                return el.entity_type == gmsh::EntityType::Curve &&
+                       el.entity_tag  == i;
+            });
+        if (it == mesh_data.elements.end())
+        {
+            throw MeshConversionException();
+        }
+        boundary.push_back(it->node_tags[0]);
+        boundary.push_back(it->node_tags[1]);
+        it += 1;
+
+        while (it != mesh_data.elements.end() && 
+               it->entity_type == gmsh::EntityType::Curve &&
+               it->entity_tag  == i)
+        {
+            if (it->node_tags[0] != boundary.back())
+            {
+                throw MeshConversionException();
+            }
+            boundary.push_back(it->node_tags[1]);
+            it += 1;
+        }
+    }
+
+    return TetMesh<double, MaxElementAdjacencies, MaxNodeAdjacencies,
+                   NodesPerFace, InternalNodes>(
+        nodes, tets, boundaries
+    );
+}
 
 } // namespace msh
 
