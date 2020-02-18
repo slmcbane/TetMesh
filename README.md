@@ -22,7 +22,11 @@ Github and copy the file `SmallVector.hpp` to your build directory, rather
 than clone that repository.
 
 ## Version
-This is `v1.0.0`.
+v1.1.0
+### Update log
+* v1.0.0 -> v1.1.0 Added basic support for reading meshes generated w/ gmsh.
+Meshes may contain only a single surface, should not have curves embedded in the
+domain (all curves are assumed to be boundaries). Added tags for boundaries.
 
 ## Author
 Sean McBane (<sean.mcbane@protonmail.com>)
