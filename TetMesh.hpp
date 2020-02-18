@@ -1497,6 +1497,36 @@ TEST_CASE("Test constructing a third order mesh")
     REQUIRE(mesh.coord(4)[1] == doctest::Approx(1.0 / 3));
 } // TEST_CASE
 
+TEST_CASE("Test constructing a third order mesh with orphaned nodes")
+{
+    const std::vector<std::array<double, 2>> nodes = {
+        std::array<double, 2>{-1, -1},
+        std::array<double, 2>{-1, -1},
+        std::array<double, 2>{-1, 1},
+        std::array<double, 2>{1, 1},
+        std::array<double, 2>{0.5, 0.5},
+        std::array<double, 2>{1, -1}
+    };
+    
+    const std::vector<std::array<int, 3>> tets = {
+        std::array<int, 3>{0, 2, 5},
+        std::array<int, 3>{5, 2, 3}
+    };
+    
+    const std::array<std::array<size_t, 2>, 2> boundaries = { 2, 3, 3, 5 };
+    
+    const auto mesh = TetMesh<double, 2, 15, 2, 1>(nodes, tets, boundaries);
+    
+    REQUIRE(mesh.num_nodes() == 4);
+    REQUIRE(mesh.coord(0) == nodes[0]);
+    REQUIRE(mesh.coord(1) == nodes[2]);
+    REQUIRE(mesh.coord(2) == nodes[3]);
+    REQUIRE(mesh.coord(3) == nodes[5]);
+    
+    REQUIRE(mesh.element(0).control_nodes == std::array<size_t, 3>{0, 1, 3});
+    REQUIRE(mesh.element(1).control_nodes == std::array<size_t, 3>{3, 1, 2});
+}
+
 TEST_CASE("Fourth order mesh")
 {
     const std::vector<std::array<int, 2>> nodes = {
