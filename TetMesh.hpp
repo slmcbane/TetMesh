@@ -122,6 +122,28 @@ struct ElementInfo
         internal_nodes.fill(static_cast<size_t>(-1));
         std::fill(internal_nodes.begin(), internal_nodes.end(), static_cast<size_t>(-1));
     }
+
+    auto node_numbers() const
+    {
+        std::array<size_t, 3 * (NodesPerFace+1) + InternalNodes> nodes;
+        size_t index = 0;
+        for (size_t i = 0; i < 3; ++i)
+        {
+            nodes[index++] = control_nodes[i];
+        }
+        for (size_t i = 0; i < 3; ++i)
+        {
+            for (size_t j = 0; j < NodesPerFace; ++j)
+            {
+                nodes[index++] = face_nodes[i][j];
+            }
+        }
+        for (size_t i = 0; i < InternalNodes; ++i)
+        {
+            nodes[index++] = internal_nodes[i];
+        }
+        return nodes;
+    }
 };
 
 /*
