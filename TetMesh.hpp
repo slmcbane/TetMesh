@@ -31,6 +31,7 @@
 #include <exception>
 #include <iterator>
 #include <queue>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -123,6 +124,8 @@ struct ElementInfo
         std::fill(internal_nodes.begin(), internal_nodes.end(), static_cast<size_t>(-1));
     }
 
+    constexpr ElementInfo() = default;
+
     auto node_numbers() const
     {
         std::array<size_t, 3 * (NodesPerFace+1) + InternalNodes> nodes;
@@ -174,6 +177,8 @@ struct BoundaryRepresentation
         FaceDetails(size_t n, size_t e, const std::array<size_t, 2+NodesPerFace> &d) noexcept :
             number{n}, element{e}, nodes(d)
         {}
+
+        constexpr FaceDetails() = default;
     };
 
     std::vector<FaceDetails> faces;
@@ -204,6 +209,9 @@ public:
 private:
     const char   *m_msg;
 };
+
+// Contains serialization functions for the data structures defined above.
+#include "serialization.hpp"
 
 /*
  * This class describes a mesh composed of simple triangles
@@ -242,7 +250,7 @@ private:
  * you know exactly where your mesh went wrong when these exceptions are thrown.
  */
 template <class CoordT, size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies,
-          size_t NodesPerFace = 0, size_t InternalNodes = 0>
+          size_t NodesPerFace, size_t InternalNodes>
 class TetMesh
 {
 public:
@@ -594,6 +602,8 @@ private:
     std::vector<el_type> m_elems;
     std::vector<BoundaryRepresentation<NodesPerFace>> m_boundaries;
     std::vector<std::vector<std::string>> m_boundary_tags;
+
+    TetMesh() = default;
 
     node_type &node(size_t i)
     {
@@ -1152,6 +1162,31 @@ private:
                 "Did not find face in faces of adjacent element - this should never happen"
             );
         }
+    }
+/******************************************************************************
+ * Definition of serialization functions
+ *****************************************************************************/
+public:
+    friend void serialize(const TetMesh<CoordT, MaxElementAdjacencies, MaxNodeAdjacencies,
+                                        NodesPerFace, InternalNodes> &mesh,
+                          FILE *out)
+    {
+        ser::elementwise_serialize(mesh.m_nodes, out);
+        ser::elementwise_serialize(mesh.m_elems, out);
+        ser::elementwise_serialize(mesh.m_boundaries, out);
+        ser::elementwise_serialize(mesh.m_boundary_tags, out);
+    }
+
+    static auto deserialize(FILE *in)
+    {
+        TetMesh<CoordT, MaxElementAdjacencies, MaxNodeAdjacencies,
+                NodesPerFace, InternalNodes> mesh;
+        mesh.m_nodes = ser::elementwise_deserialize<node_type>(in);
+        mesh.m_elems = ser::elementwise_deserialize<el_type>(in);
+        mesh.m_boundaries = ser::elementwise_deserialize<
+            BoundaryRepresentation<NodesPerFace>>(in);
+        mesh.m_boundary_tags = ser::elementwise_deserialize<std::vector<std::string>>(in);
+        return mesh;
     }
 };
 
