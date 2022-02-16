@@ -24,8 +24,9 @@
 #define SERIALIZATION_HPP
 
 #include <cstddef>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 
 /*
  * This file just separates out serialization code from the main TetMesh header.
@@ -33,7 +34,8 @@
  */
 
 struct SerializationException : public std::exception
-{};
+{
+};
 
 namespace ser
 {
@@ -61,7 +63,7 @@ T checked_read(FILE *in)
 template <class T>
 void checked_read(FILE *in, T *dst, const int64_t count)
 {
-    if (fread(dst, sizeof(T), count, in) != count)
+    if (fread(dst, sizeof(T), count, in) != static_cast<size_t>(count))
     {
         throw SerializationException{};
     }
@@ -105,7 +107,7 @@ void deserialize(FILE *in, smv::SmallVector<T, N> &vec)
 template <class T, class T2 = T, size_t N>
 void serialize(const std::array<T, N> &x, FILE *out)
 {
-    if constexpr(std::is_same_v<T, T2>)
+    if constexpr (std::is_same_v<T, T2>)
     {
         checked_write(x.data(), sizeof(T), N, out);
     }
@@ -133,8 +135,7 @@ void deserialize(FILE *in, std::array<T, N> &x)
 }
 
 template <class CoordT, size_t MaxNodeAdjacencies>
-void serialize(const NodeInfo<CoordT, MaxNodeAdjacencies> &node,
-               FILE *out)
+void serialize(const NodeInfo<CoordT, MaxNodeAdjacencies> &node, FILE *out)
 {
     serialize(node.coords, out);
     serialize<size_t, int64_t>(node.adjacent_nodes, out);
@@ -148,8 +149,8 @@ void deserialize(FILE *in, NodeInfo<CoordT, MaxNodeAdjacencies> &node)
 }
 
 template <size_t MaxElementAdjacencies, size_t NodesPerFace, size_t InternalNodes>
-void serialize(const ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> &el,
-               FILE *out)
+void serialize(
+    const ElementInfo<MaxElementAdjacencies, NodesPerFace, InternalNodes> &el, FILE *out)
 {
     serialize<size_t, int64_t>(el.control_nodes, out);
     serialize<size_t, int64_t>(el.faces, out);
@@ -175,10 +176,9 @@ void deserialize(FILE *in, ElementInfo<Params...> &el)
 }
 
 template <size_t N>
-void serialize(const typename BoundaryRepresentation<N>::FaceDetails &face,
-               FILE *out)
+void serialize(const typename BoundaryRepresentation<N>::FaceDetails &face, FILE *out)
 {
-    std::array<int64_t, 4+N> numbers;
+    std::array<int64_t, 4 + N> numbers;
     numbers[0] = face.number;
     numbers[1] = face.element;
     std::copy(face.nodes.begin(), face.nodes.end(), numbers.data() + 2);
@@ -188,7 +188,7 @@ void serialize(const typename BoundaryRepresentation<N>::FaceDetails &face,
 template <size_t N>
 void deserialize(FILE *in, typename BoundaryRepresentation<N>::FaceDetails &face)
 {
-    std::array<int64_t, 4+N> numbers;
+    std::array<int64_t, 4 + N> numbers;
     deserialize(in, numbers);
     face.number = numbers[0];
     face.element = numbers[1];
@@ -196,8 +196,7 @@ void deserialize(FILE *in, typename BoundaryRepresentation<N>::FaceDetails &face
 }
 
 template <size_t NodesPerFace>
-void serialize(const BoundaryRepresentation<NodesPerFace> &boundary,
-               FILE *out)
+void serialize(const BoundaryRepresentation<NodesPerFace> &boundary, FILE *out)
 {
     int64_t count = boundary.nodes.size();
     checked_write(&count, sizeof(count), 1, out);
@@ -209,7 +208,7 @@ void serialize(const BoundaryRepresentation<NodesPerFace> &boundary,
 
     count = boundary.faces.size();
     checked_write(&count, sizeof(count), 1, out);
-    for (const auto &face: boundary.faces)
+    for (const auto &face : boundary.faces)
     {
         serialize<NodesPerFace>(face, out);
     }
@@ -227,7 +226,7 @@ void deserialize(FILE *in, BoundaryRepresentation<NodesPerFace> &boundary)
 
     count = checked_read<int64_t>(in);
     boundary.faces.resize(count);
-    for (auto &face: boundary.faces)
+    for (auto &face : boundary.faces)
     {
         deserialize<NodesPerFace>(in, face);
     }
@@ -251,7 +250,7 @@ void serialize(const std::vector<std::string> &tags, FILE *out)
 {
     int64_t count = tags.size();
     checked_write(&count, sizeof(count), 1, out);
-    for (const auto &str: tags)
+    for (const auto &str : tags)
     {
         serialize(str, out);
     }
@@ -261,7 +260,7 @@ void deserialize(FILE *in, std::vector<std::string> &tags)
 {
     int64_t count = checked_read<int64_t>(in);
     tags.resize(count);
-    for (auto &str: tags)
+    for (auto &str : tags)
     {
         deserialize(in, str);
     }
@@ -272,7 +271,7 @@ void elementwise_serialize(const std::vector<T> &vec, FILE *out)
 {
     int64_t count = vec.size();
     checked_write(&count, sizeof(count), 1, out);
-    for (const auto &el: vec)
+    for (const auto &el : vec)
     {
         serialize(el, out);
     }
@@ -282,11 +281,8 @@ template <class T>
 auto elementwise_deserialize(FILE *in)
 {
     std::vector<T> vec(
-        static_cast<typename std::vector<T>::size_type>(
-            checked_read<int64_t>(in)
-        )
-    );
-    for (auto &el: vec)
+        static_cast<typename std::vector<T>::size_type>(checked_read<int64_t>(in)));
+    for (auto &el : vec)
     {
         deserialize(in, el);
     }
