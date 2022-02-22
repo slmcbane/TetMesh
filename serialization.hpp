@@ -40,7 +40,7 @@ struct SerializationException : public std::exception
 namespace ser
 {
 
-void checked_write(const void *data, size_t size, size_t count, FILE *out)
+inline void checked_write(const void *data, size_t size, size_t count, FILE *out)
 {
     size_t written = fwrite(data, size, count, out);
     if (written != count)
@@ -232,21 +232,21 @@ void deserialize(FILE *in, BoundaryRepresentation<NodesPerFace> &boundary)
     }
 }
 
-void serialize(const std::string &str, FILE *out)
+inline void serialize(const std::string &str, FILE *out)
 {
     int64_t count = str.size();
     checked_write(&count, sizeof(count), 1, out);
     checked_write(str.data(), sizeof(char), count, out);
 }
 
-void deserialize(FILE *in, std::string &str)
+inline void deserialize(FILE *in, std::string &str)
 {
     int64_t count = checked_read<int64_t>(in);
     str.resize(count);
     checked_read(in, str.data(), count);
 }
 
-void serialize(const std::vector<std::string> &tags, FILE *out)
+inline void serialize(const std::vector<std::string> &tags, FILE *out)
 {
     int64_t count = tags.size();
     checked_write(&count, sizeof(count), 1, out);
@@ -256,7 +256,7 @@ void serialize(const std::vector<std::string> &tags, FILE *out)
     }
 }
 
-void deserialize(FILE *in, std::vector<std::string> &tags)
+inline void deserialize(FILE *in, std::vector<std::string> &tags)
 {
     int64_t count = checked_read<int64_t>(in);
     tags.resize(count);
