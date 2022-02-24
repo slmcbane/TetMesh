@@ -49,6 +49,16 @@ inline void checked_write(const void *data, size_t size, size_t count, FILE *out
     }
 }
 
+template <
+    size_t MaxElementAdjacencies, size_t MaxNodeAdjacencies, size_t NodesPerFace,
+    size_t InternalNodes>
+void serialize_metadata(FILE *out)
+{
+    constexpr int64_t metadata[] = {
+        MaxElementAdjacencies, MaxNodeAdjacencies, NodesPerFace, InternalNodes};
+    checked_write(&metadata[0], sizeof(int64_t), 4, out);
+}
+
 template <class T>
 T checked_read(FILE *in)
 {
@@ -67,6 +77,14 @@ void checked_read(FILE *in, T *dst, const int64_t count)
     {
         throw SerializationException{};
     }
+}
+
+inline std::tuple<size_t, size_t, size_t, size_t> deserialize_metadata(FILE *in)
+{
+    int64_t metadata[4];
+    checked_read(in, &metadata[0], 4);
+    return std::tuple<size_t, size_t, size_t, size_t>(
+        metadata[0], metadata[1], metadata[2], metadata[3]);
 }
 
 template <class T, class T2 = T, size_t MaxNodeAdjacencies>

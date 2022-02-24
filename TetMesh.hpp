@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <exception>
 #include <iterator>
+#include <optional>
 #include <queue>
 #include <string>
 #include <type_traits>
@@ -368,6 +369,10 @@ class TetMesh
     const el_type &element(size_t i) const { return m_elems.at(i); }
 
     const node_type &node(size_t i) const { return m_nodes.at(i); }
+
+    // Provided since it is useful for, for example, applying a geometry transform
+    // to a mesh.
+    std::array<CoordT, 2> &coord_ref(size_t i) { return m_nodes.at(i).coords; }
 
     // Coordinates of the i-th node
     const std::array<CoordT, 2> &coord(size_t i) const { return node(i).coords; }
@@ -1173,19 +1178,26 @@ class TetMesh
      * Definition of serialization functions
      *****************************************************************************/
   public:
-    friend void serialize(
-        const TetMesh<
-            CoordT, MaxElementAdjacencies, MaxNodeAdjacencies, NodesPerFace, InternalNodes> &mesh,
-        FILE *out)
+    void serialize(FILE *out) const
     {
-        ser::elementwise_serialize(mesh.m_nodes, out);
-        ser::elementwise_serialize(mesh.m_elems, out);
-        ser::elementwise_serialize(mesh.m_boundaries, out);
-        ser::elementwise_serialize(mesh.m_boundary_tags, out);
+        ser::serialize_metadata<
+            MaxElementAdjacencies, MaxNodeAdjacencies, NodesPerFace, InternalNodes>(out);
+        ser::elementwise_serialize(m_nodes, out);
+        ser::elementwise_serialize(m_elems, out);
+        ser::elementwise_serialize(m_boundaries, out);
+        ser::elementwise_serialize(m_boundary_tags, out);
     }
 
-    static auto deserialize(FILE *in)
+    static std::optional<
+        TetMesh<CoordT, MaxElementAdjacencies, MaxNodeAdjacencies, NodesPerFace, InternalNodes>>
+    deserialize(FILE *in)
     {
+        auto [max_el_adj, max_node_adj, npf, inodes] = ser::deserialize_metadata(in);
+        if (max_el_adj != MaxElementAdjacencies || max_node_adj != MaxNodeAdjacencies ||
+            npf != NodesPerFace || inodes != InternalNodes)
+        {
+            return std::nullopt;
+        }
         TetMesh<CoordT, MaxElementAdjacencies, MaxNodeAdjacencies, NodesPerFace, InternalNodes>
             mesh;
         mesh.m_nodes = ser::elementwise_deserialize<node_type>(in);
