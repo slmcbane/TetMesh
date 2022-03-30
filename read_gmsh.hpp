@@ -36,7 +36,7 @@
  *   2) parse_gmsh_file(const char *name) to parse a file with path given in
  *      the string argument. This currently reads the entire file into a buffer
  *      in memory before parsing, but could easily be modified to use an mmap.
- * 
+ *
  * See the method docs on these entry points for further info.
  */
 
@@ -155,22 +155,19 @@ class ParserState;
  * Parse a gmsh mesh from binary data already loaded.
  * A ParserState object is constructed from a pointer to a memory buffer and
  * a length of the buffer.
- * 
+ *
  * The returned `MeshData` object contains all of the raw info contained in
  * the mesh, subject to the restrictions described above. I think the names
  * of the fields in each struct are self-documenting.
  */
-inline MeshData
-parse_gmsh_data(ParserState &state);
+inline MeshData parse_gmsh_data(ParserState &state);
 
 struct ParsingException : public std::exception
 {
     const char *msg;
     const char *what() const noexcept { return msg; }
 
-    ParsingException(const char *m) noexcept : msg{m}
-    {
-    }
+    ParsingException(const char *m) noexcept : msg{m} {}
 };
 
 /*
@@ -179,11 +176,11 @@ struct ParsingException : public std::exception
  * before calling parse_gmsh_data on a ParserState constructed from the
  * buffer.
  */
-inline MeshData
-parse_gmsh_file(const char *name);
+inline MeshData parse_gmsh_file(const char *name);
 
 static const ParsingException unrecognized_section_name("Unrecognized section name");
-static const ParsingException past_the_end("Requested access to data past the end of what was read");
+static const ParsingException
+    past_the_end("Requested access to data past the end of what was read");
 
 class ParserState
 {
@@ -208,19 +205,19 @@ class ParserState
     void extract_32bit_size_t(size_t *dst, size_t n)
     {
         static_assert(sizeof(uint32_t) == 4, "32 bits isn't 4 bytes?");
-        static std::vector<uint32_t> numbers;
+        static thread_local std::vector<uint32_t> numbers;
         numbers.resize(n);
         extract_binary(numbers.data(), n);
         std::transform(
             numbers.begin(), numbers.end(), dst,
-            [](uint32_t x) { return static_cast<size_t>(x); }
-        );
+            [](uint32_t x) { return static_cast<size_t>(x); });
     }
 
-public:
-    ParserState(const char *ptr, size_t size) noexcept :
-        m_offset{0}, m_data{ptr}, m_size{size}, m_int_size{0}
-    {}
+  public:
+    ParserState(const char *ptr, size_t size) noexcept
+        : m_offset{0}, m_data{ptr}, m_size{size}, m_int_size{0}
+    {
+    }
 
     size_t offset() const noexcept { return m_offset; }
 
@@ -245,10 +242,7 @@ public:
         return m_data + m_offset;
     }
 
-    char current() const
-    {
-        return *data();
-    }
+    char current() const { return *data(); }
 
     size_t size() const noexcept { return m_size; }
 
@@ -284,38 +278,35 @@ public:
     int32_t extract_int()
     {
         static_assert(sizeof(int32_t) == 4, "where is 4 bytes not 32 bits?");
-        static int32_t i;
+        static thread_local int32_t i;
         extract_binary(&i, 1);
         return i;
     }
 
     void extract_size_t(size_t *dst, size_t n)
     {
-        switch(data_size())
+        switch (data_size())
         {
-            case 4:
-                extract_32bit_size_t(dst, n);
-                return;
-            case 8:
-                static_assert(sizeof(size_t) == 8, "assumed 64-bit size_t");
-                extract_binary(dst, n);
-                return;
-            default:
-                throw ParsingException("Unimplemented int_size: expected 4 or 8 bytes");
+        case 4:
+            extract_32bit_size_t(dst, n);
+            return;
+        case 8:
+            static_assert(sizeof(size_t) == 8, "assumed 64-bit size_t");
+            extract_binary(dst, n);
+            return;
+        default:
+            throw ParsingException("Unimplemented int_size: expected 4 or 8 bytes");
         }
     }
 
     size_t extract_size_t()
     {
-        static size_t result;
+        static thread_local size_t result;
         extract_size_t(&result, 1);
         return result;
     }
-    
-    void extract_double(double *dst, size_t n)
-    {
-        extract_binary(dst, n);
-    }
+
+    void extract_double(double *dst, size_t n) { extract_binary(dst, n); }
 
     double extract_double()
     {
@@ -346,8 +337,7 @@ public:
     }
 };
 
-inline MeshData
-parse_gmsh_file(const char *name)
+inline MeshData parse_gmsh_file(const char *name)
 {
     std::FILE *infile = std::fopen(name, "rb");
     if (infile == nullptr)
@@ -384,8 +374,7 @@ parse_gmsh_file(const char *name)
     return parse_gmsh_data(state);
 }
 
-inline SectionType
-get_mesh_format_name(ParserState &state)
+inline SectionType get_mesh_format_name(ParserState &state)
 {
     if (state.compare_next("MeshFormat", 10))
     {
@@ -396,8 +385,7 @@ get_mesh_format_name(ParserState &state)
     throw unrecognized_section_name;
 }
 
-inline SectionType
-get_ghost_elements_name(ParserState &state)
+inline SectionType get_ghost_elements_name(ParserState &state)
 {
     if (state.compare_next("GhostElements", 13))
     {
@@ -408,8 +396,7 @@ get_ghost_elements_name(ParserState &state)
     throw unrecognized_section_name;
 }
 
-inline SectionType
-get_interpolation_scheme_name(ParserState &state)
+inline SectionType get_interpolation_scheme_name(ParserState &state)
 {
     if (state.compare_next("InterpolationScheme", 19))
     {
@@ -420,8 +407,7 @@ get_interpolation_scheme_name(ParserState &state)
     throw unrecognized_section_name;
 }
 
-inline SectionType
-get_letter_n_name(ParserState &state)
+inline SectionType get_letter_n_name(ParserState &state)
 {
     if (!state.compare_next("Node", 4))
     {
@@ -429,127 +415,124 @@ get_letter_n_name(ParserState &state)
     }
 
     state.add_offset(4);
-    switch(state.current())
+    switch (state.current())
     {
+    case 's':
+        state.add_offset(1);
+        return SectionType::Nodes;
+    case 'D':
+        if (state.compare_next("Data", 4))
+        {
+            state.add_offset(4);
+            return SectionType::NodeData;
+        }
+    default:
+        throw unrecognized_section_name;
+    }
+}
+
+inline SectionType get_letter_p_name(ParserState &state)
+{
+    state.add_offset(1);
+    switch (state.current())
+    {
+    case 'a':
+        if (state.compare_next("artitionedEntities", 18))
+        {
+            state.add_offset(18);
+            return SectionType::PartitionedEntities;
+        }
+        else if (state.compare_next("arametrizations", 15))
+        {
+            state.add_offset(15);
+            return SectionType::Parametrizations;
+        }
+    case 'e':
+        if (state.compare_next("eriodic", 7))
+        {
+            state.add_offset(7);
+            return SectionType::Periodic;
+        }
+    case 'h':
+        if (state.compare_next("hysicalNames", 12))
+        {
+            state.add_offset(12);
+            return SectionType::PhysicalNames;
+        }
+    default:
+        throw unrecognized_section_name;
+    }
+}
+
+inline SectionType get_letter_e_name(ParserState &state)
+{
+    state.add_offset(1);
+    switch (state.current())
+    {
+    case 'l':
+        if (!state.compare_next("lement", 6))
+        {
+            throw unrecognized_section_name;
+        }
+        state.add_offset(6);
+        switch (state.current())
+        {
         case 's':
             state.add_offset(1);
-            return SectionType::Nodes;
+            return SectionType::Elements;
         case 'D':
             if (state.compare_next("Data", 4))
             {
                 state.add_offset(4);
-                return SectionType::NodeData;
+                return SectionType::ElementData;
+            }
+        case 'N':
+            if (state.compare_next("NodeData", 8))
+            {
+                state.add_offset(8);
+                return SectionType::ElementNodeData;
             }
         default:
             throw unrecognized_section_name;
+        }
+    case 'n':
+        if (state.compare_next("ntities", 7))
+        {
+            state.add_offset(7);
+            return SectionType::Entities;
+        }
+    default:
+        throw unrecognized_section_name;
     }
 }
 
-inline SectionType
-get_letter_p_name(ParserState &state)
-{
-    state.add_offset(1);
-    switch(state.current())
-    {
-        case 'a':
-            if (state.compare_next("artitionedEntities", 18))
-            {
-                state.add_offset(18);
-                return SectionType::PartitionedEntities;
-            }
-            else if (state.compare_next("arametrizations", 15))
-            {
-                state.add_offset(15);
-                return SectionType::Parametrizations;
-            }
-        case 'e':
-            if (state.compare_next("eriodic", 7))
-            {
-                state.add_offset(7);
-                return SectionType::Periodic;
-            }
-        case 'h':
-            if (state.compare_next("hysicalNames", 12))
-            {
-                state.add_offset(12);
-                return SectionType::PhysicalNames;
-            }
-        default:
-            throw unrecognized_section_name;
-    }
-}
-
-inline SectionType
-get_letter_e_name(ParserState &state)
-{
-    state.add_offset(1);
-    switch(state.current())
-    {
-        case 'l':
-            if (!state.compare_next("lement", 6))
-            {
-                throw unrecognized_section_name;
-            }
-            state.add_offset(6);
-            switch(state.current())
-            {
-                case 's':
-                    state.add_offset(1);
-                    return SectionType::Elements;
-                case 'D':
-                    if (state.compare_next("Data", 4))
-                    {
-                        state.add_offset(4);
-                        return SectionType::ElementData;
-                    }
-                case 'N':
-                    if (state.compare_next("NodeData", 8))
-                    {
-                        state.add_offset(8);
-                        return SectionType::ElementNodeData;
-                    }
-                default:
-                    throw unrecognized_section_name;
-            }
-        case 'n':
-            if (state.compare_next("ntities", 7))
-            {
-                state.add_offset(7);
-                return SectionType::Entities;
-            }
-        default:
-            throw unrecognized_section_name;
-    }
-}
-
-inline SectionType
-parse_section_name(ParserState &state)
+inline SectionType parse_section_name(ParserState &state)
 {
     SectionType type;
-    switch(state.current())
+    switch (state.current())
     {
-        case 'M':
-            type = get_mesh_format_name(state);
-            break;
-        case 'G':
-            type = get_ghost_elements_name(state);
-            break;
-        case 'I':
-            type = get_interpolation_scheme_name(state);
-            break;
-        case 'P':
-            type = get_letter_p_name(state);
-            break;
-        case 'E':
-            type = get_letter_e_name(state);
-            break;
-        case 'N':
-            type = get_letter_n_name(state);
-            break;
-        default:
-            throw unrecognized_section_name;
+    case 'M':
+        type = get_mesh_format_name(state);
+        break;
+    case 'G':
+        type = get_ghost_elements_name(state);
+        break;
+    case 'I':
+        type = get_interpolation_scheme_name(state);
+        break;
+    case 'P':
+        type = get_letter_p_name(state);
+        break;
+    case 'E':
+        type = get_letter_e_name(state);
+        break;
+    case 'N':
+        type = get_letter_n_name(state);
+        break;
+    default:
+        throw unrecognized_section_name;
     }
-    
+
     if (state.current() != '\n')
     {
         throw ParsingException("Expected newline at end of section name");
@@ -558,8 +541,7 @@ parse_section_name(ParserState &state)
     return type;
 }
 
-inline SectionType
-parse_section_header(ParserState &state)
+inline SectionType parse_section_header(ParserState &state)
 {
     if (!(state.current() == '$'))
     {
@@ -619,20 +601,17 @@ TEST_CASE("Parse section headers")
     state = ParserState("$Elementz", 9);
     REQUIRE_THROWS_WITH(parse_section_header(state), unrecognized_section_name.what());
     state = ParserState("blah", 4);
-    REQUIRE_THROWS_WITH(parse_section_header(state),
-                        "Expected to read a section header");
+    REQUIRE_THROWS_WITH(parse_section_header(state), "Expected to read a section header");
     state = ParserState("$Nodes ", 7);
-    REQUIRE_THROWS_WITH(parse_section_header(state),
-                        "Expected newline at end of section name");
-                       
+    REQUIRE_THROWS_WITH(parse_section_header(state), "Expected newline at end of section name");
+
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
 
-inline void
-parse_mesh_format(ParserState &state)
+inline void parse_mesh_format(ParserState &state)
 {
     auto header = parse_section_header(state);
     if (header != SectionType::MeshFormat)
@@ -645,7 +624,7 @@ parse_mesh_format(ParserState &state)
     {
         throw ParsingException("Parser implemented for msh format 4.1");
     }
-    
+
     long is_binary = state.extract_ascii_int();
     if (is_binary == 0)
     {
@@ -693,8 +672,7 @@ TEST_CASE("Test parsing the mesh format")
 /********************************************************************************
  *******************************************************************************/
 
-inline void
-parse_section_end(ParserState &state, SectionType what_section)
+inline void parse_section_end(ParserState &state, SectionType what_section)
 {
     state.skip_whitespace();
     if (!state.compare_next("$End", 4))
@@ -702,9 +680,9 @@ parse_section_end(ParserState &state, SectionType what_section)
         throw ParsingException("Expected end of section");
     }
     state.add_offset(4);
-    
+
     SectionType what_was_read = parse_section_name(state);
-    
+
     if (what_was_read != what_section)
     {
         throw ParsingException("Read section end that doesn't match the current section");
@@ -721,18 +699,20 @@ TEST_CASE("Test parsing end of section")
     ParserState state("$EndMeshFormat\n", 15);
     REQUIRE_NOTHROW(parse_section_end(state, SectionType::MeshFormat));
     state = ParserState("$EndMeshFormat\n", 15);
-    REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::Nodes),
-                        "Read section end that doesn't match the current section");
-    
+    REQUIRE_THROWS_WITH(
+        parse_section_end(state, SectionType::Nodes),
+        "Read section end that doesn't match the current section");
+
     state = ParserState("$EndEntities\n", 13);
     REQUIRE_NOTHROW(parse_section_end(state, SectionType::Entities));
     state = ParserState("$EndEntities\n", 13);
-    REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::MeshFormat),
-                        "Read section end that doesn't match the current section");
-    
+    REQUIRE_THROWS_WITH(
+        parse_section_end(state, SectionType::MeshFormat),
+        "Read section end that doesn't match the current section");
+
     state = ParserState("$EndNodes\n", 10);
     REQUIRE_NOTHROW(parse_section_end(state, SectionType::Nodes));
-    
+
     state = ParserState("EndNodes", 9);
     REQUIRE_THROWS_WITH(parse_section_end(state, SectionType::Nodes), "Expected end of section");
 } // TEST_CASE
@@ -741,8 +721,7 @@ TEST_CASE("Test parsing end of section")
 /********************************************************************************
  *******************************************************************************/
 
-inline std::string
-parse_ascii_string(ParserState &state)
+inline std::string parse_ascii_string(ParserState &state)
 {
     if (state.current() != '"')
     {
@@ -750,7 +729,7 @@ parse_ascii_string(ParserState &state)
     }
     state.add_offset(1);
 
-    const char *end = reinterpret_cast<const char*>(
+    const char *end = reinterpret_cast<const char *>(
         std::memchr(state.data(), '"', state.size() - state.offset()));
 
     if (end == nullptr)
@@ -784,8 +763,7 @@ TEST_CASE("Test parse_ascii_string")
 /********************************************************************************
  *******************************************************************************/
 
-inline PhysicalNames
-parse_physical_names(ParserState &state)
+inline PhysicalNames parse_physical_names(ParserState &state)
 {
     size_t num_physical_names = state.extract_ascii_int();
 
@@ -798,14 +776,14 @@ parse_physical_names(ParserState &state)
         names.dims.push_back(state.extract_ascii_int());
 
         size_t tag_value = state.extract_ascii_int();
-        if (tag_value != i+1)
+        if (tag_value != i + 1)
         {
             throw ParsingException("Expected sequential tags 1:N in PhysicalNames");
         }
         state.skip_whitespace();
 
         names.names.emplace_back(parse_ascii_string(state));
-        
+
         if (state.current() != '\n')
         {
             throw ParsingException("Expected newline after name in PhysicalNames");
@@ -825,7 +803,7 @@ TEST_CASE("Test parse_physical_names")
 {
     const char data[] = "\n4\n0 1 \"top_points\"\n0 2 \"bottom_points\"\n1 3 \""
                         "ports\"\n2 4 \"domain\"\n$EndPhysicalNames\n";
-    
+
     ParserState state(data, sizeof(data));
 
     auto names = parse_physical_names(state);
@@ -853,9 +831,9 @@ inline PointData
 parse_point_data(ParserState &state, int32_t expected, const PhysicalNames &physical_names)
 {
     PointData pt;
-    
+
     int32_t point_tag = state.extract_int();
-    if (point_tag != expected+1)
+    if (point_tag != expected + 1)
     {
         throw ParsingException("Got non-sequential point tag");
     }
@@ -863,7 +841,7 @@ parse_point_data(ParserState &state, int32_t expected, const PhysicalNames &phys
     size_t num_tags = state.extract_size_t();
     for (size_t i = 0; i < num_tags; ++i)
     {
-        size_t tag = state.extract_int()-1;
+        size_t tag = state.extract_int() - 1;
         if (tag >= physical_names.dims.size())
         {
             throw ParsingException("Physical tag out of bounds in parse_point_data");
@@ -878,8 +856,7 @@ parse_point_data(ParserState &state, int32_t expected, const PhysicalNames &phys
 }
 
 inline std::vector<PointData>
-parse_all_points(ParserState &state, size_t num_points,
-                 const PhysicalNames &physical_names)
+parse_all_points(ParserState &state, size_t num_points, const PhysicalNames &physical_names)
 {
     std::vector<PointData> points;
     for (size_t i = 0; i < num_points; ++i)
@@ -898,8 +875,7 @@ TEST_CASE("Test parse_all_points")
 {
     PhysicalNames physical_names{
         std::vector<size_t>{0, 0, 1, 2},
-        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}
-    };
+        std::vector<std::string>{"top_points", "bottom_points", "ports", "domain"}};
 
     const char data[] = "\x01\0\0\0\0\0\0\0\0\0\xf0\xbf\0\0\0\0\0\0\xf0\xbf\0\0\0"
                         "\0\0\0\0\0\x01\0\0\0\0\0\0\0\x02\0\0\0\x02\0\0\0\0\0\0\0"
@@ -944,14 +920,13 @@ TEST_CASE("Test parse_all_points")
 /********************************************************************************
  *******************************************************************************/
 
-inline CurveData
-parse_curve_data(ParserState &state, int32_t expected, size_t num_points,
-                 const PhysicalNames &physical_names)
+inline CurveData parse_curve_data(
+    ParserState &state, int32_t expected, size_t num_points, const PhysicalNames &physical_names)
 {
     CurveData curve;
 
     int32_t curve_tag = state.extract_int();
-    if (curve_tag != expected+1)
+    if (curve_tag != expected + 1)
     {
         throw ParsingException("Got non-sequential curve tag");
     }
@@ -979,7 +954,7 @@ parse_curve_data(ParserState &state, int32_t expected, size_t num_points,
     for (size_t i = 0; i < num_bpoints; ++i)
     {
         int32_t tag = state.extract_int();
-        size_t pt_tag = tag < 0 ? -(tag+1) : tag-1;
+        size_t pt_tag = tag < 0 ? -(tag + 1) : tag - 1;
         if (pt_tag >= num_points)
         {
             throw ParsingException("Point tag in parse_curve_data out of bounds");
@@ -989,9 +964,8 @@ parse_curve_data(ParserState &state, int32_t expected, size_t num_points,
     return curve;
 }
 
-inline std::vector<CurveData>
-parse_all_curves(ParserState &state, size_t num_curves, size_t num_points,
-                 const PhysicalNames &physical_names)
+inline std::vector<CurveData> parse_all_curves(
+    ParserState &state, size_t num_curves, size_t num_points, const PhysicalNames &physical_names)
 {
     std::vector<CurveData> curves;
     for (size_t i = 0; i < num_curves; ++i)
@@ -1068,14 +1042,13 @@ TEST_CASE("Test parse_all_curves")
 /********************************************************************************
  *******************************************************************************/
 
-inline SurfaceData
-parse_surface_data(ParserState &state, int32_t expected, size_t num_curves,
-                   const PhysicalNames &physical_names)
+inline SurfaceData parse_surface_data(
+    ParserState &state, int32_t expected, size_t num_curves, const PhysicalNames &physical_names)
 {
     SurfaceData surf;
 
     int32_t surf_tag = state.extract_int();
-    if (surf_tag != expected+1)
+    if (surf_tag != expected + 1)
     {
         throw ParsingException("Got non-sequential surface tag");
     }
@@ -1093,7 +1066,8 @@ parse_surface_data(ParserState &state, int32_t expected, size_t num_curves,
         }
         if (physical_names.dims.at(tag) != 2)
         {
-            throw ParsingException("Physical tag in parse_surface_data does not refer to surface");
+            throw ParsingException(
+                "Physical tag in parse_surface_data does not refer to surface");
         }
         surf.physical_tags.push_back(physical_names.names.at(tag));
     }
@@ -1112,9 +1086,8 @@ parse_surface_data(ParserState &state, int32_t expected, size_t num_curves,
     return surf;
 }
 
-inline std::vector<SurfaceData>
-parse_all_surfaces(ParserState &state, size_t num_surfs, size_t num_points,
-                   const PhysicalNames &physical_names)
+inline std::vector<SurfaceData> parse_all_surfaces(
+    ParserState &state, size_t num_surfs, size_t num_points, const PhysicalNames &physical_names)
 {
     std::vector<SurfaceData> surfs;
     for (size_t i = 0; i < num_surfs; ++i)
@@ -1161,14 +1134,13 @@ TEST_CASE("Test parse_all_surfaces")
 /********************************************************************************
  *******************************************************************************/
 
-inline Entities
-parse_entities(ParserState &state, const PhysicalNames &physical_names)
+inline Entities parse_entities(ParserState &state, const PhysicalNames &physical_names)
 {
     size_t num_points = state.extract_size_t();
     size_t num_curves = state.extract_size_t();
     size_t num_surfaces = state.extract_size_t();
     size_t num_volumes = state.extract_size_t();
-    
+
     if (num_volumes != 0)
     {
         throw ParsingException("3D meshes not implemented");
@@ -1343,15 +1315,13 @@ parse_entity_type_and_tag(ParserState &state, const Entities &entities)
     }
 
     return std::make_pair(
-        entity_dim == 0 ? EntityType::Point :
-            entity_dim == 1 ? EntityType::Curve :
-            EntityType::Surface,
-        entity_tag
-    );
+        entity_dim == 0   ? EntityType::Point
+        : entity_dim == 1 ? EntityType::Curve
+                          : EntityType::Surface,
+        entity_tag);
 }
 
-inline std::vector<NodeData>
-parse_nodes(ParserState &state, const Entities &entities)
+inline std::vector<NodeData> parse_nodes(ParserState &state, const Entities &entities)
 {
     size_t num_entity_blocks = state.extract_size_t();
     size_t num_nodes = state.extract_size_t();
@@ -1377,8 +1347,8 @@ parse_nodes(ParserState &state, const Entities &entities)
         }
         size_t nodes_in_block = state.extract_size_t();
 
-        static std::vector<size_t> node_tags;
-        static std::vector<double> node_coords;
+        static thread_local std::vector<size_t> node_tags;
+        static thread_local std::vector<double> node_coords;
         node_tags.resize(nodes_in_block);
         node_coords.resize(nodes_in_block * 3);
 
@@ -1398,7 +1368,7 @@ parse_nodes(ParserState &state, const Entities &entities)
             }
             nodes[tag].entity_tag = type_and_tag.second;
             nodes[tag].entity_type = type_and_tag.first;
-            std::copy(&node_coords[n*3], &node_coords[n*3+3], nodes[tag].coords.data());
+            std::copy(&node_coords[n * 3], &node_coords[n * 3 + 3], nodes[tag].coords.data());
             initialized[tag] = true;
         }
     }
@@ -1412,117 +1382,96 @@ parse_nodes(ParserState &state, const Entities &entities)
 
 TEST_CASE("Test parse_nodes")
 {
-    const uint8_t data[] = {0x24, 0x50, 0x68, 0x79, 0x73, 0x69, 0x63, 0x61, 0x6c,
-        0x4e, 0x61, 0x6d, 0x65, 0x73, 0x0a, 0x34, 0x0a, 0x30, 0x20, 0x31, 0x20,
-        0x22, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x73, 0x22,
-        0x0a, 0x30, 0x20, 0x32, 0x20, 0x22, 0x62, 0x6f, 0x74, 0x74, 0x6f, 0x6d,
-        0x5f, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x73, 0x22, 0x0a, 0x31, 0x20, 0x33,
-        0x20, 0x22, 0x70, 0x6f, 0x72, 0x74, 0x73, 0x22, 0x0a, 0x32, 0x20, 0x34,
-        0x20, 0x22, 0x64, 0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x22, 0x0a, 0x24, 0x45,
-        0x6e, 0x64, 0x50, 0x68, 0x79, 0x73, 0x69, 0x63, 0x61, 0x6c, 0x4e, 0x61,
-        0x6d, 0x65, 0x73, 0x0a, 0x24, 0x45, 0x6e, 0x74, 0x69, 0x74, 0x69, 0x65,
-        0x73, 0x0a, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
-        0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff, 0x02, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0xfd, 0xff,
-        0xff, 0xff, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0xfc, 0xff, 0xff, 0xff, 0x04, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0xff,
-        0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00,
-        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x0a, 0x24, 0x45, 0x6e, 0x64, 0x45,
-        0x6e, 0x74, 0x69, 0x74, 0x69, 0x65, 0x73, 0x0a, 0x24, 0x4e, 0x6f, 0x64,
-        0x65, 0x73, 0x0a, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0xbd, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0xbd, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
-        0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0x3d, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0,
-        0x36, 0x88, 0x3d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25,
-        0x9f, 0xff, 0xff, 0xff, 0xff, 0xdf, 0x3f, 0x6e, 0x30, 0x00, 0x00, 0x00,
-        0x00, 0xe0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6e,
-        0x30, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x3f, 0x22, 0x9f, 0xff, 0xff, 0xff,
-        0xff, 0xcf, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e,
-        0xab, 0xff, 0xff, 0xff, 0xff, 0xdb, 0xbf, 0xbe, 0x54, 0x00, 0x00, 0x00,
-        0x00, 0xdc, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc9,
-        0x3b, 0x00, 0x00, 0x00, 0xc0, 0xd3, 0xbf, 0x3c, 0xc4, 0xff, 0xff, 0xff,
-        0xbf, 0xd3, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x0a,
-        0x24, 0x45, 0x6e, 0x64, 0x4e, 0x6f, 0x64, 0x65, 0x73, 0x0a };
+    const uint8_t data[] = {
+        0x24, 0x50, 0x68, 0x79, 0x73, 0x69, 0x63, 0x61, 0x6c, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x0a,
+        0x34, 0x0a, 0x30, 0x20, 0x31, 0x20, 0x22, 0x74, 0x6f, 0x70, 0x5f, 0x70, 0x6f, 0x69, 0x6e,
+        0x74, 0x73, 0x22, 0x0a, 0x30, 0x20, 0x32, 0x20, 0x22, 0x62, 0x6f, 0x74, 0x74, 0x6f, 0x6d,
+        0x5f, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x73, 0x22, 0x0a, 0x31, 0x20, 0x33, 0x20, 0x22, 0x70,
+        0x6f, 0x72, 0x74, 0x73, 0x22, 0x0a, 0x32, 0x20, 0x34, 0x20, 0x22, 0x64, 0x6f, 0x6d, 0x61,
+        0x69, 0x6e, 0x22, 0x0a, 0x24, 0x45, 0x6e, 0x64, 0x50, 0x68, 0x79, 0x73, 0x69, 0x63, 0x61,
+        0x6c, 0x4e, 0x61, 0x6d, 0x65, 0x73, 0x0a, 0x24, 0x45, 0x6e, 0x74, 0x69, 0x74, 0x69, 0x65,
+        0x73, 0x0a, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+        0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0xfe, 0xff, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0xfd, 0xff, 0xff, 0xff, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0xfc, 0xff, 0xff, 0xff, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x0a, 0x24, 0x45, 0x6e, 0x64, 0x45,
+        0x6e, 0x74, 0x69, 0x74, 0x69, 0x65, 0x73, 0x0a, 0x24, 0x4e, 0x6f, 0x64, 0x65, 0x73, 0x0a,
+        0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0,
+        0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0xbd, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0xbd, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0x3d, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x36, 0x88, 0x3d, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xf0, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0x9f, 0xff, 0xff, 0xff, 0xff, 0xdf, 0x3f, 0x6e, 0x30,
+        0x00, 0x00, 0x00, 0x00, 0xe0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6e,
+        0x30, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x3f, 0x22, 0x9f, 0xff, 0xff, 0xff, 0xff, 0xcf, 0xbf,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0xab, 0xff, 0xff, 0xff, 0xff, 0xdb,
+        0xbf, 0xbe, 0x54, 0x00, 0x00, 0x00, 0x00, 0xdc, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xc9, 0x3b, 0x00, 0x00, 0x00, 0xc0, 0xd3, 0xbf, 0x3c, 0xc4, 0xff, 0xff, 0xff,
+        0xbf, 0xd3, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x0a, 0x24, 0x45, 0x6e,
+        0x64, 0x4e, 0x6f, 0x64, 0x65, 0x73, 0x0a};
 
     ParserState state(reinterpret_cast<const char *>(&data[0]), sizeof(data));
     state.set_data_size(8);
@@ -1538,7 +1487,7 @@ TEST_CASE("Test parse_nodes")
     const auto nodes = parse_nodes(state, entities);
     REQUIRE(nodes.size() == 12);
 
-    for (const auto &node: nodes)
+    for (const auto &node : nodes)
     {
         REQUIRE(node.coords[2] == 0);
     }
@@ -1591,17 +1540,16 @@ TEST_CASE("Test parse_nodes")
     REQUIRE(nodes[10].coords[0] == doctest::Approx(-0.4375));
     REQUIRE(nodes[10].coords[1] == doctest::Approx(-0.4375));
     REQUIRE(nodes[11].coords[0] == doctest::Approx(-0.30859375));
-    REQUIRE(nodes[11].coords[1] == doctest::Approx(0.30859375));  
+    REQUIRE(nodes[11].coords[1] == doctest::Approx(0.30859375));
 } // TEST_CASE
 
 #endif // DOCTEST_LIBRARY_INCLUDED
 /********************************************************************************
  *******************************************************************************/
 
-inline void
-parse_point_elements(std::vector<ElementData> &elements, ParserState &state,
-                     std::vector<bool> &initialized, const Entities &entities,
-                     const std::vector<NodeData> &nodes)
+inline void parse_point_elements(
+    std::vector<ElementData> &elements, ParserState &state, std::vector<bool> &initialized,
+    const Entities &entities, const std::vector<NodeData> &nodes)
 {
     size_t tag = state.extract_int() - 1;
     if (tag >= entities.points.size())
@@ -1651,10 +1599,9 @@ parse_point_elements(std::vector<ElementData> &elements, ParserState &state,
     }
 }
 
-inline void
-parse_line_elements(std::vector<ElementData> &elements, ParserState &state,
-                    std::vector<bool> &initialized, const Entities &entities,
-                    const std::vector<NodeData> &nodes)
+inline void parse_line_elements(
+    std::vector<ElementData> &elements, ParserState &state, std::vector<bool> &initialized,
+    const Entities &entities, const std::vector<NodeData> &nodes)
 {
     size_t tag = state.extract_int() - 1;
     if (tag >= entities.curves.size())
@@ -1689,26 +1636,27 @@ parse_line_elements(std::vector<ElementData> &elements, ParserState &state,
         element.node_tags.resize(2);
         state.extract_size_t(element.node_tags.data(), 2);
 
-        for (auto &node_tag: element.node_tags)
+        for (auto &node_tag : element.node_tags)
         {
             node_tag -= 1;
             if (node_tag >= nodes.size())
             {
                 throw ParsingException("Out of bounds node tag in parse_line_elements");
             }
-            else if (nodes[node_tag].entity_type != EntityType::Curve &&
-                     nodes[node_tag].entity_type != EntityType::Point)
+            else if (
+                nodes[node_tag].entity_type != EntityType::Curve &&
+                nodes[node_tag].entity_type != EntityType::Point)
             {
-                throw ParsingException("Referenced node does not belong to a point or curve entity");
+                throw ParsingException(
+                    "Referenced node does not belong to a point or curve entity");
             }
         }
     }
 }
 
-inline void
-parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
-                        std::vector<bool> &initialized, const Entities &entities,
-                        const std::vector<NodeData> &nodes)
+inline void parse_triangle_elements(
+    std::vector<ElementData> &elements, ParserState &state, std::vector<bool> &initialized,
+    const Entities &entities, const std::vector<NodeData> &nodes)
 {
     size_t tag = state.extract_int() - 1;
     if (tag >= entities.surfs.size())
@@ -1743,7 +1691,7 @@ parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
         element.node_tags.resize(3);
         state.extract_size_t(element.node_tags.data(), 3);
 
-        for (auto &node_tag: element.node_tags)
+        for (auto &node_tag : element.node_tags)
         {
             node_tag -= 1;
             if (node_tag >= nodes.size())
@@ -1772,8 +1720,7 @@ parse_triangle_elements(std::vector<ElementData> &elements, ParserState &state,
 }
 
 inline std::vector<ElementData>
-parse_elements(ParserState &state, const Entities &entities,
-               const std::vector<NodeData> &nodes)
+parse_elements(ParserState &state, const Entities &entities, const std::vector<NodeData> &nodes)
 {
     size_t num_entity_blocks = state.extract_size_t();
     size_t num_elements = state.extract_size_t();
@@ -1791,46 +1738,45 @@ parse_elements(ParserState &state, const Entities &entities,
     for (size_t e = 0; e < num_entity_blocks; ++e)
     {
         int32_t dim = state.extract_int();
-        switch(dim)
+        switch (dim)
         {
-            case 0:
-                parse_point_elements(elements, state, initialized, entities, nodes);
-                continue;
-            case 1:
-                parse_line_elements(elements, state, initialized, entities, nodes);
-                continue;
-            case 2:
-                parse_triangle_elements(elements, state, initialized, entities, nodes);
-                continue;
-            default:
-                throw ParsingException("Bad dimension for entity in parse_elements");
+        case 0:
+            parse_point_elements(elements, state, initialized, entities, nodes);
+            continue;
+        case 1:
+            parse_line_elements(elements, state, initialized, entities, nodes);
+            continue;
+        case 2:
+            parse_triangle_elements(elements, state, initialized, entities, nodes);
+            continue;
+        default:
+            throw ParsingException("Bad dimension for entity in parse_elements");
         }
     }
     return elements;
 }
 
-inline void
-skip_section(ParserState &state, SectionType what_section)
+inline void skip_section(ParserState &state, SectionType what_section)
 {
     constexpr const char node_data_str[] = "$EndNodeData\n";
     constexpr const char element_data_str[] = "$EndElementData\n";
     constexpr const char element_node_data_str[] = "$EndElementNodeData\n";
 
     size_t offset_to_add;
-    switch(what_section)
+    switch (what_section)
     {
-        case SectionType::NodeData:
-            offset_to_add = state.find_bytes(node_data_str, sizeof(node_data_str)-1);
-            break;
-        case SectionType::ElementData:
-            offset_to_add = state.find_bytes(element_data_str, sizeof(element_data_str) - 1);
-            break;
-        case SectionType::ElementNodeData:
-            offset_to_add = state.find_bytes(element_node_data_str,
-                sizeof(element_node_data_str) - 1);
-            break;
-        default:
-            throw ParsingException("what_section wasn't NodeData, ElementData, ElementNodeData");
+    case SectionType::NodeData:
+        offset_to_add = state.find_bytes(node_data_str, sizeof(node_data_str) - 1);
+        break;
+    case SectionType::ElementData:
+        offset_to_add = state.find_bytes(element_data_str, sizeof(element_data_str) - 1);
+        break;
+    case SectionType::ElementNodeData:
+        offset_to_add =
+            state.find_bytes(element_node_data_str, sizeof(element_node_data_str) - 1);
+        break;
+    default:
+        throw ParsingException("what_section wasn't NodeData, ElementData, ElementNodeData");
     }
     if (offset_to_add == static_cast<size_t>(-1))
     {
@@ -1839,12 +1785,10 @@ skip_section(ParserState &state, SectionType what_section)
     state.add_offset(offset_to_add);
 }
 
-inline MeshData
-parse_gmsh_data(ParserState &state)
+inline MeshData parse_gmsh_data(ParserState &state)
 {
-    std::array<bool, 13> section_parsed { false, false, false, false, false,
-                                          false, false, false, false, false,
-                                          false, false, false };
+    std::array<bool, 13> section_parsed{false, false, false, false, false, false, false,
+                                        false, false, false, false, false, false};
     parse_mesh_format(state);
     parse_section_end(state, SectionType::MeshFormat);
     section_parsed[static_cast<size_t>(SectionType::MeshFormat)] = true;
@@ -1860,47 +1804,47 @@ parse_gmsh_data(ParserState &state)
         }
         section_parsed[static_cast<size_t>(what_section)] = true;
 
-        switch(what_section)
+        switch (what_section)
         {
-            case SectionType::PhysicalNames:
-                mesh_data.physical_names = parse_physical_names(state);
-                break;
-            case SectionType::Entities:
-                mesh_data.entities = parse_entities(state, mesh_data.physical_names);
-                break;
-            case SectionType::PartitionedEntities:
-                throw ParsingException("Nothing is implemented regarding partitioned entities");
-            case SectionType::Nodes:
-                if (!section_parsed[static_cast<size_t>(SectionType::Entities)])
-                {
-                    throw ParsingException("Must specify entities before nodes");
-                }
-                mesh_data.nodes = parse_nodes(state, mesh_data.entities);
-                break;
-            case SectionType::Elements:
-                if (!section_parsed[static_cast<size_t>(SectionType::Nodes)])
-                {
-                    throw ParsingException("Must specify nodes before elements");
-                }
-                mesh_data.elements = parse_elements(state, mesh_data.entities, mesh_data.nodes);
-                break;
-            case SectionType::Periodic:
-                throw ParsingException("Nothing is implemented regarding periodic links");
-            case SectionType::GhostElements:
-                throw ParsingException("Nothing is implemented regarding ghost elements");
-            case SectionType::Parametrizations:
-                throw ParsingException("Nothing is implemented regarding parametrizations");
-            case SectionType::NodeData:
-            case SectionType::ElementData:
-            case SectionType::ElementNodeData:
-                printf("Informational: nothing is currently done with NodeData, "
-                       "ElementData, or ElementNodeData sections\n");
-                skip_section(state, what_section);
-                break;
-            case SectionType::InterpolationScheme:
-                throw ParsingException("Nothing is implemented regarding interpolation schemes");
-            default:
-                throw ParsingException("It should be impossible to hit this exception");
+        case SectionType::PhysicalNames:
+            mesh_data.physical_names = parse_physical_names(state);
+            break;
+        case SectionType::Entities:
+            mesh_data.entities = parse_entities(state, mesh_data.physical_names);
+            break;
+        case SectionType::PartitionedEntities:
+            throw ParsingException("Nothing is implemented regarding partitioned entities");
+        case SectionType::Nodes:
+            if (!section_parsed[static_cast<size_t>(SectionType::Entities)])
+            {
+                throw ParsingException("Must specify entities before nodes");
+            }
+            mesh_data.nodes = parse_nodes(state, mesh_data.entities);
+            break;
+        case SectionType::Elements:
+            if (!section_parsed[static_cast<size_t>(SectionType::Nodes)])
+            {
+                throw ParsingException("Must specify nodes before elements");
+            }
+            mesh_data.elements = parse_elements(state, mesh_data.entities, mesh_data.nodes);
+            break;
+        case SectionType::Periodic:
+            throw ParsingException("Nothing is implemented regarding periodic links");
+        case SectionType::GhostElements:
+            throw ParsingException("Nothing is implemented regarding ghost elements");
+        case SectionType::Parametrizations:
+            throw ParsingException("Nothing is implemented regarding parametrizations");
+        case SectionType::NodeData:
+        case SectionType::ElementData:
+        case SectionType::ElementNodeData:
+            printf("Informational: nothing is currently done with NodeData, "
+                   "ElementData, or ElementNodeData sections\n");
+            skip_section(state, what_section);
+            break;
+        case SectionType::InterpolationScheme:
+            throw ParsingException("Nothing is implemented regarding interpolation schemes");
+        default:
+            throw ParsingException("It should be impossible to hit this exception");
         }
         parse_section_end(state, what_section);
     }
