@@ -127,7 +127,10 @@ void serialize(const std::array<T, N> &x, FILE *out)
 {
     if constexpr (std::is_same_v<T, T2>)
     {
-        checked_write(x.data(), sizeof(T), N, out);
+        if constexpr (N > 0)
+        {
+            checked_write(x.data(), sizeof(T), N, out);
+        }
     }
     else
     {
@@ -142,7 +145,10 @@ void deserialize(FILE *in, std::array<T, N> &x)
 {
     if constexpr (std::is_same_v<T, T2>)
     {
-        checked_read(in, x.data(), N);
+        if constexpr (N > 0)
+        {
+            checked_read(in, x.data(), N);
+        }
     }
     else
     {
