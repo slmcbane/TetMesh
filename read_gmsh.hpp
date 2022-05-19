@@ -1079,7 +1079,7 @@ inline SurfaceData parse_surface_data(
         size_t tag = state.extract_int() - 1;
         if (tag >= num_curves)
         {
-            throw ParsingException("Curve tag in parse_surface_data out of bounds");
+            // throw ParsingException("Curve tag in parse_surface_data out of bounds");
         }
         surf.bounding_curves.push_back(tag);
     }
